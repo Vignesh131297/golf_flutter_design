@@ -240,6 +240,28 @@ export function playingHandicap(index: number, tee: TeeSet | undefined, coursePa
   return Math.round(courseHandicap * (allowancePct / 100))
 }
 
+/**
+ * Handicap allowances the client confirmed (WHS Appendix C). Individual and four-ball formats use one
+ * percentage; a scramble takes a different share of each player's course handicap, lowest first.
+ */
+export const FORMAT_ALLOWANCES: { format: string; allowance: string }[] = [
+  { format: 'Individual stroke play', allowance: '95%' },
+  { format: 'Individual Stableford', allowance: '95%' },
+  { format: 'Individual match play', allowance: '100%' },
+  { format: 'Four-Ball (better ball) stroke play', allowance: '85%' },
+  { format: 'Four-Ball match play', allowance: '90%' },
+  { format: 'Foursomes (alternate shot)', allowance: '50% of the combined team handicap' },
+]
+
+export const SCRAMBLE_ALLOWANCES: Record<2 | 3 | 4, number[]> = { 2: [35, 15], 3: [30, 20, 10], 4: [25, 20, 15, 10] }
+
+/** Team playing handicap for a scramble: each player's course handicap × their share, added together. */
+export function scrambleTeamHandicap(courseHandicaps: number[]) {
+  const size = Math.min(4, Math.max(2, courseHandicaps.length)) as 2 | 3 | 4
+  const shares = SCRAMBLE_ALLOWANCES[size]
+  return Math.round([...courseHandicaps].sort((a, b) => a - b).reduce((sum, h, i) => sum + (h * (shares[i] ?? 0)) / 100, 0))
+}
+
 /** Strokes received on a hole for a playing handicap (stroke index allocation). */
 export function strokesOnHole(playing: number, strokeIndex: number, holeCount = 18) {
   if (playing <= 0) return 0

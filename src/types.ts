@@ -8,6 +8,15 @@ export type ScreenName =
   | 'live-play'
   | 'profile'
   | 'edit-profile'
+  | 'play'
+  /* Marshal, official and organiser tabs */
+  | 'pace'
+  | 'issues'
+  | 'cards'
+  | 'tee-sheet'
+  | 'today'
+  | 'staff-profile'
+  | 'web-only'
 
 export interface NavEntry {
   screen: ScreenName
@@ -32,6 +41,8 @@ export interface DialogData {
 }
 
 export type TournamentStatus =
+  /** Organisers' unpublished set-up (web console only; never shown to golfers) */
+  | 'draft'
   | 'published'
   | 'registration-open'
   | 'registration-closed'
@@ -82,6 +93,10 @@ export interface Tournament {
   localRules?: string
   /** Final results are visible to golfers */
   resultsPublished?: boolean
+  /** Organisation that runs it (matches the web prototype's organisations) */
+  organizerId?: string
+  /** Target round time and how far behind a group can fall before it's flagged */
+  pace?: { targetMinutes: number; flagMinutes: number }
 }
 
 export interface TournamentRound {
@@ -168,6 +183,10 @@ export interface Official {
   name: string
   role: string
   phone: string
+  /** Marshals and officials with an email get a login for this tournament only (see ops.ts) */
+  email?: string
+  /** When the organiser sent the login invitation */
+  invitedAt?: string
 }
 
 

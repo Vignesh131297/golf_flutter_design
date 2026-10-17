@@ -6,6 +6,11 @@ import SignUp, { type AccountBasics } from './screens/SignUp'
 import ProfileSetup from './screens/ProfileSetup'
 import VerifyEmail from './screens/VerifyEmail'
 import { MOCK_PROFILE, applyNewAccount } from './data'
+import { resolveAccount, organiserTournament, type Account } from './accounts'
+import { assignmentsFor, type Actor } from './ops'
+import {
+  CardsScreen, IssuesScreen, MeScreen, PaceScreen, PlayScreen, TeeSheetScreen, TodayScreen, WebOnlyScreen, type RoleContext,
+} from './screens/Roles'
 import Home from './screens/Home'
 import TournamentList from './screens/TournamentList'
 import TournamentDetails from './screens/TournamentDetails'
@@ -72,31 +77,66 @@ function DynamicIsland() {
 
 /* ───────────────── Bottom Navigation ───────────────── */
 
+type NavIcon = (p: { active?: boolean }) => React.ReactNode
+
+const NavSvg = ({ children }: { children: React.ReactNode }) => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{children}</svg>
+)
+const IconPlay: NavIcon = () => <NavSvg><path d="M6 21V3M6 4h11l-2.5 4L17 12H6" /><ellipse cx="11" cy="20" rx="6" ry="1.5" /></NavSvg>
+const IconPace: NavIcon = () => <NavSvg><circle cx="12" cy="13" r="8" /><path d="M12 9v4l2.5 2M9.5 2.5h5" /></NavSvg>
+const IconIssues: NavIcon = () => <NavSvg><path d="M12 3l9.5 17h-19L12 3z" /><path d="M12 10v4M12 17v.5" /></NavSvg>
+const IconCards: NavIcon = () => <NavSvg><rect x="3.5" y="4" width="17" height="16" rx="2.5" /><path d="M3.5 9h17M9 9v11M14.5 9v11" /></NavSvg>
+const IconSheet: NavIcon = () => <NavSvg><path d="M7 3.5h10M5 7.5h14M5 7.5v13h14v-13M9 12h6M9 16h4" /></NavSvg>
+const IconToday: NavIcon = () => <NavSvg><rect x="3.5" y="5" width="17" height="15.5" rx="2.5" /><path d="M3.5 10h17M8 3v4M16 3v4M8 14h3" /></NavSvg>
+
+export interface TabDef { label: string; screen: ScreenName; Icon: NavIcon; match: ScreenName[] }
+
+const GOLFER_TABS: TabDef[] = [
+  { label: 'Home', screen: 'home', Icon: IconHome, match: ['home'] },
+  { label: 'Events', screen: 'tournaments', Icon: IconTournament, match: ['tournaments', 'tournament-details', 'course-details'] },
+  { label: 'Play', screen: 'play', Icon: IconPlay, match: ['play', 'leaderboard', 'live-play'] },
+  { label: 'Profile', screen: 'profile', Icon: IconProfile, match: ['profile', 'edit-profile'] },
+]
+const ME_TAB: TabDef = { label: 'Me', screen: 'staff-profile', Icon: IconProfile, match: ['staff-profile'] }
+const MARSHAL_TABS: TabDef[] = [
+  { label: 'Pace', screen: 'pace', Icon: IconPace, match: ['pace'] },
+  { label: 'Incidents', screen: 'issues', Icon: IconIssues, match: ['issues'] },
+  { label: 'Tee sheet', screen: 'tee-sheet', Icon: IconSheet, match: ['tee-sheet'] },
+  ME_TAB,
+]
+const OFFICIAL_TABS: TabDef[] = [
+  { label: 'Cards', screen: 'cards', Icon: IconCards, match: ['cards'] },
+  { label: 'Disputes', screen: 'issues', Icon: IconIssues, match: ['issues'] },
+  { label: 'Pace', screen: 'pace', Icon: IconPace, match: ['pace'] },
+  ME_TAB,
+]
+const ORGANISER_TABS: TabDef[] = [
+  { label: 'Today', screen: 'today', Icon: IconToday, match: ['today', 'pace'] },
+  { label: 'Cards', screen: 'cards', Icon: IconCards, match: ['cards'] },
+  { label: 'Disputes', screen: 'issues', Icon: IconIssues, match: ['issues'] },
+  ME_TAB,
+]
+
 interface BottomNavProps {
+  tabs: TabDef[]
   activeTab: number
   onTabChange: (tab: number) => void
 }
 
-const NAV_TABS = [
-  { label: 'Home', Icon: IconHome },
-  { label: 'Tournaments', Icon: IconTournament },
-  { label: 'Profile', Icon: IconProfile },
-]
-
-function BottomNav({ activeTab, onTabChange }: BottomNavProps) {
+function BottomNav({ tabs, activeTab, onTabChange }: BottomNavProps) {
   return (
     <div className="flex-shrink-0 bg-canvas px-5 pt-2">
       {/* Floating pill */}
       <div className="flex items-center gap-1 bg-ink rounded-full p-1.5 shadow-float">
-        {NAV_TABS.map(({ label, Icon }, i) => {
+        {tabs.map(({ label, Icon }, i) => {
           const isActive = activeTab === i
           return (
             <button
-              key={i}
+              key={label}
               onClick={() => onTabChange(i)}
               aria-label={label}
               className={`h-12 flex items-center justify-center gap-2 rounded-full transition-all duration-200 active:scale-95 ${
-                isActive ? 'flex-[1.6] bg-lime-400 text-ink' : 'flex-1 text-white/55'
+                isActive ? 'flex-[1.7] bg-lime-400 text-ink' : 'flex-1 text-white/55'
               }`}
             >
               <Icon active={isActive} />
@@ -272,7 +312,7 @@ function PhoneFrame({ children, bare }: { children: React.ReactNode; bare: boole
       </div>
 
       <div className="absolute bottom-6 left-1/2 -translate-x-1/2">
-        <p className="text-white/15 text-[10px] font-display tracking-widest uppercase">Sprint 1 · UI Design</p>
+        <p className="text-white/15 text-[10px] font-display tracking-widest uppercase">Sprint 2 · Role-based UI</p>
       </div>
     </div>
   )
@@ -327,19 +367,38 @@ function SessionExpiredModal({ onDismiss }: { onDismiss: () => void }) {
 
 /* ───────────────── App Root ───────────────── */
 
-const TAB_SCREENS: ScreenName[] = ['home', 'tournaments', 'profile']
-
 export default function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  // One sign-in for every role: the account decides the tabs (golfer, marshal, official, organiser; admins use the web)
+  const [account, setAccount]                 = useState<Account | null>(null)
+  const [staffTid, setStaffTid]               = useState<string | null>(null)
   const [activeTab, setActiveTab]             = useState(0)
   const [navStack, setNavStack]               = useState<NavEntry[]>([{ screen: 'home', direction: 'push' }])
   const [toast, setToast]                     = useState<ToastData | null>(null)
   const [dialog, setDialog]                   = useState<DialogData | null>(null)
   const [sessionExpired, setSessionExpired]   = useState(false)
   const [isLoading]                           = useState(false)
+  const isAuthenticated = account !== null
 
   const currentRoute = navStack[navStack.length - 1]
   const canGoBack    = navStack.length > 1
+
+  /* ── Role context: which tournament this session works on, and as whom ── */
+  const golferName = `${MOCK_PROFILE.firstName} ${MOCK_PROFILE.lastName}`
+  const assignments = account?.kind === 'staff' ? assignmentsFor(account.email).filter(a => a.window !== 'ended') : []
+  const assignment = assignments.find(a => a.tournament.id === staffTid) ?? assignments.find(a => a.window === 'live') ?? assignments[0]
+  const roleTournament = account?.kind === 'organiser' ? organiserTournament(account.organizerId) : assignment?.tournament
+  const actor: Actor =
+    account?.kind === 'staff' ? { name: account.name, role: assignment?.role ?? 'marshal' }
+    : account?.kind === 'organiser' ? { name: account.name, role: 'organiser' }
+    : { name: golferName, role: 'golfer' }
+
+  const tabs: TabDef[] =
+    !account || account.kind === 'golfer' ? GOLFER_TABS
+    : account.kind === 'organiser' ? ORGANISER_TABS
+    : account.kind === 'admin' ? []
+    : !assignment ? [ME_TAB]
+    : assignment.window === 'upcoming' ? [MARSHAL_TABS[2], ME_TAB]
+    : assignment.role === 'official' ? OFFICIAL_TABS : MARSHAL_TABS
 
   const push = useCallback((screen: ScreenName, params?: Record<string, string>) => {
     setNavStack(prev => [...prev, { screen, params, direction: 'push' }])
@@ -355,8 +414,8 @@ export default function App() {
 
   const switchTab = useCallback((tab: number) => {
     setActiveTab(tab)
-    setNavStack([{ screen: TAB_SCREENS[tab], direction: 'push' }])
-  }, [])
+    setNavStack([{ screen: tabs[tab]?.screen ?? 'home', direction: 'push' }])
+  }, [tabs])
 
   const showToast = useCallback((message: string, type: ToastData['type'] = 'success') => {
     const id = Date.now().toString()
@@ -365,12 +424,29 @@ export default function App() {
 
   const showDialog = useCallback((d: DialogData) => setDialog(d), [])
 
-  const handleSignIn = useCallback(() => {
-    setIsAuthenticated(true)
-    setNavStack([{ screen: 'home', direction: 'push' }])
+  /** Lands each role on its first tab */
+  const enter = useCallback((acc: Account, tid: string | null = null) => {
+    setAccount(acc)
+    setStaffTid(tid)
     setActiveTab(0)
-    showToast(`Welcome back, ${MOCK_PROFILE.firstName}`, 'success')
-  }, [showToast])
+    let first: ScreenName = 'home'
+    if (acc.kind === 'admin') first = 'web-only'
+    else if (acc.kind === 'organiser') first = 'today'
+    else if (acc.kind === 'staff') {
+      const list = assignmentsFor(acc.email).filter(a => a.window !== 'ended')
+      const a = list.find(x => x.tournament.id === tid) ?? list.find(x => x.window === 'live') ?? list[0]
+      first = !a ? 'staff-profile' : a.window === 'upcoming' ? 'tee-sheet' : a.role === 'official' ? 'cards' : 'pace'
+    }
+    setNavStack([{ screen: first, direction: 'push' }])
+  }, [])
+
+  const handleSignIn = useCallback((email: string, password: string) => {
+    const acc = resolveAccount(email, password)
+    if (acc === 'invalid') return false
+    enter(acc)
+    showToast(`Welcome back, ${acc.kind === 'golfer' ? MOCK_PROFILE.firstName : acc.name.split(' ')[0]}`, 'success')
+    return true
+  }, [enter, showToast])
 
   /* Sign-up flow: sign in → sign up → verify email → golfer profile setup → home */
   const [authScreen, setAuthScreen]       = useState<'signin' | 'signup' | 'verify' | 'setup'>('signin')
@@ -383,15 +459,13 @@ export default function App() {
     setAuthScreen(screen)
   }, [])
 
-  const handleAccountCreated = useCallback((account: NewAccount) => {
-    applyNewAccount(account)
+  const handleAccountCreated = useCallback((created: NewAccount) => {
+    applyNewAccount(created)
     setBasics(null)
     setAuthScreen('signin')
-    setIsAuthenticated(true)
-    setNavStack([{ screen: 'home', direction: 'push' }])
-    setActiveTab(0)
+    enter({ kind: 'golfer' })
     showToast(`Welcome, ${MOCK_PROFILE.firstName}! We've emailed a confirmation to ${MOCK_PROFILE.email}`, 'success')
-  }, [showToast])
+  }, [showToast, enter])
 
   const handleSignOut = useCallback(() => {
     showDialog({
@@ -401,7 +475,7 @@ export default function App() {
       cancelLabel: 'Stay',
       destructive: true,
       onConfirm: () => {
-        setIsAuthenticated(false)
+        setAccount(null)
         setNavStack([{ screen: 'home', direction: 'push' }])
         setActiveTab(0)
         showToast('Signed out successfully', 'info')
@@ -411,19 +485,35 @@ export default function App() {
 
   const handleSessionExpired = useCallback(() => {
     setSessionExpired(false)
-    setIsAuthenticated(false)
+    setAccount(null)
     setNavStack([{ screen: 'home', direction: 'push' }])
   }, [])
 
-  const sharedProps = { push, pop, showToast, showDialog, canGoBack }
+  /** The golfer who is also a marshal / official opens that duty, and back */
+  const switchToStaff = useCallback((tid: string) => {
+    enter({ kind: 'staff', email: MOCK_PROFILE.email, name: golferName }, tid)
+    showToast('Switched to your tournament duty', 'info')
+  }, [enter, showToast, golferName])
 
-  /* Derive active tab from current screen */
+  const roleCtx: RoleContext = {
+    account: account ?? { kind: 'golfer' },
+    t: roleTournament,
+    assignment,
+    actor,
+    selectTournament: tid => { if (account?.kind === 'staff') enter(account, tid) },
+    onSignOut: handleSignOut,
+    switchToGolf: account?.kind === 'staff' && account.email === MOCK_PROFILE.email.toLowerCase()
+      ? () => { enter({ kind: 'golfer' }); showToast('Back to your golf', 'info') } : undefined,
+  }
+
+  const sharedProps = { push, pop, showToast, showDialog, canGoBack }
+  const roleProps = { ...sharedProps, ctx: roleCtx }
+
+  /* Derive the active tab from the current screen */
   useEffect(() => {
-    const s = currentRoute.screen
-    if (s === 'home') setActiveTab(0)
-    else if (s === 'tournaments' || s === 'tournament-details' || s === 'course-details' || s === 'leaderboard' || s === 'live-play') setActiveTab(1)
-    else if (s === 'profile' || s === 'edit-profile') setActiveTab(2)
-  }, [currentRoute.screen])
+    const i = tabs.findIndex(t => t.match.includes(currentRoute.screen))
+    if (i >= 0) setActiveTab(i)
+  }, [currentRoute.screen, tabs])
 
   function renderScreen() {
     if (!isAuthenticated) {
@@ -466,24 +556,40 @@ export default function App() {
           return <Leaderboard {...sharedProps} tournamentId={currentRoute.params?.id ?? 't8'} />
         case 'live-play':
           return <LivePlay {...sharedProps} tournamentId={currentRoute.params?.id ?? 't8'} />
+        case 'play':
+          return <PlayScreen {...roleProps} />
         case 'profile':
-          return <Profile {...sharedProps} onSignOut={handleSignOut} />
+          return <Profile {...sharedProps} onSignOut={handleSignOut} onSwitchRole={switchToStaff} />
         case 'edit-profile':
           return <EditProfile {...sharedProps} />
+        case 'pace':
+          return <PaceScreen {...roleProps} />
+        case 'issues':
+          return <IssuesScreen {...roleProps} />
+        case 'cards':
+          return <CardsScreen {...roleProps} />
+        case 'tee-sheet':
+          return <TeeSheetScreen {...roleProps} />
+        case 'today':
+          return <TodayScreen {...roleProps} />
+        case 'staff-profile':
+          return <MeScreen {...roleProps} />
+        case 'web-only':
+          return <WebOnlyScreen {...roleProps} />
         default:
-          return <Home {...sharedProps} />
+          return account?.kind === 'golfer' ? <Home {...sharedProps} /> : null
       }
     })()
 
     return (
-      <div key={currentRoute.screen + JSON.stringify(currentRoute.params)} className={`h-full ${animClass}`}>
+      <div key={currentRoute.screen + JSON.stringify(currentRoute.params) + (roleTournament?.id ?? '')} className={`h-full ${animClass}`}>
         {screenContent}
       </div>
     )
   }
 
   // Live scoring is a focused, full-screen mode on the course
-  const showBottomNav = isAuthenticated && !isLoading && currentRoute.screen !== 'live-play'
+  const showBottomNav = isAuthenticated && !isLoading && currentRoute.screen !== 'live-play' && tabs.length > 0
   const isPhone       = useIsPhoneViewport()
 
   return (
@@ -496,13 +602,14 @@ export default function App() {
           : <StatusBar />}
 
         {/* Screen content */}
-        <div className="flex-1 overflow-hidden relative">
+        {/* Bottom sheets portal into this element so they cover the screen whatever scrolls inside it */}
+        <div id="screen-root" className="flex-1 overflow-hidden relative">
           {renderScreen()}
         </div>
 
         {/* Bottom nav */}
         {showBottomNav && (
-          <BottomNav activeTab={activeTab} onTabChange={switchTab} />
+          <BottomNav tabs={tabs} activeTab={activeTab} onTabChange={switchTab} />
         )}
       </div>
 

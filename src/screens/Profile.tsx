@@ -6,9 +6,13 @@ import {
   IconEdit, IconSignOut, IconChevronRight,
 } from '../components'
 import { MOCK_PROFILE } from '../data'
+import { golferDuties } from '../accounts'
+import { STAFF_ROLE_LABEL } from '../ops'
 
 interface ProfileProps extends SharedNavProps {
   onSignOut: () => void
+  /** Opens a tournament where this golfer is also a marshal or official */
+  onSwitchRole?: (tournamentId: string) => void
 }
 
 type LoadState = 'loading' | 'loaded' | 'error'
@@ -61,7 +65,7 @@ function ActionRow({ icon, label, sublabel, onClick, variant = 'default' }: {
   )
 }
 
-export default function Profile({ push, showToast, onSignOut }: ProfileProps) {
+export default function Profile({ push, showToast, onSignOut, onSwitchRole }: ProfileProps) {
   const [loadState, setLoadState] = useState<LoadState>('loading')
   const profile = MOCK_PROFILE
 
@@ -146,6 +150,18 @@ export default function Profile({ push, showToast, onSignOut }: ProfileProps) {
             </div>
           </div>
         </div>
+
+        {/* One account, several roles */}
+        {onSwitchRole && golferDuties().length > 0 && (
+          <Group title="Your other roles">
+            {golferDuties().map(a => (
+              <ActionRow key={a.tournament.id} icon={<span className="text-[16px]">⇄</span>}
+                label={`${STAFF_ROLE_LABEL[a.role]} · ${a.tournament.name}`}
+                sublabel={a.window === 'live' ? 'Live now — open the console' : `${a.tournament.dateRange} · tee sheet and contacts`}
+                onClick={() => onSwitchRole(a.tournament.id)} />
+            ))}
+          </Group>
+        )}
 
         <Group title="Personal information">
           <div className="px-4 divide-y divide-black/[0.05]">

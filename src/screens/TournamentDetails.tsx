@@ -6,10 +6,12 @@ import {
 } from '../components'
 import { getTournament, getCourse, MOCK_PROFILE } from '../data'
 import { ratingsGenderOf } from '../account-rules'
-import { entriesFor, groupOf, myEntry, registerMe, useLiveVersion, withdrawMe } from '../live'
+import { entriesFor, groupOf, myEntry, registerMe, registrantsFor, useLiveVersion, withdrawMe } from '../live'
+import { Sheet } from '../ops-ui'
 import {
   TIE_BREAK_OPTIONS, formatClock, formatDateTime, formatDay, formatMoney, isoDate, isoLocalDateTime, teeSwatch, teeTotal,
 } from '../golf'
+import { PaymentSheet } from '../payments'
 
 interface TournamentDetailsProps extends SharedNavProps {
   tournamentId: string
@@ -21,6 +23,56 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
       <h2 className="font-display font-bold text-ink text-[17px] tracking-tight mb-3">{title}</h2>
       {children}
     </div>
+  )
+}
+
+/** Registrant list (client, 17 Oct): only golfers registered for the tournament see who's playing */
+function WhosPlaying({ t, players, isRegistered }: { t: Tournament; players: number; isRegistered: boolean }) {
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState('')
+  const list = registrantsFor(t.id)
+  const division = (id: string) => t.divisions?.find(d => d.id === id)?.name ?? ''
+  const hi = (n: number) => (n < 0 ? `+${Math.abs(n).toFixed(1)}` : n.toFixed(1))
+  const row = (e: (typeof list)[number]) => (
+    <li key={e.id} className="flex items-center gap-3 py-2.5 border-b border-black/[0.05] last:border-0">
+      <span className={`w-9 h-9 rounded-full flex items-center justify-center font-display font-extrabold text-[12px] flex-shrink-0 ${e.isMe ? 'bg-lime-400 text-ink' : 'bg-canvas text-ink'}`}>
+        {e.name.split(/\s+/).map(w => w[0]).slice(0, 2).join('')}
+      </span>
+      <span className="flex-1 min-w-0">
+        <span className="block text-[14px] font-semibold text-ink truncate">{e.name}{e.isMe && <span className="ml-1.5 text-[11px] font-bold text-pine-700">You</span>}</span>
+        <span className="block text-[11px] text-gray-500 truncate">{division(e.divisionId)}</span>
+      </span>
+      <span className="text-[13px] font-semibold text-gray-600">{hi(e.handicapIndex)}</span>
+    </li>
+  )
+  if (!isRegistered) {
+    return (
+      <div className="rounded-2xl bg-white shadow-card px-4 py-3.5 flex items-center gap-3">
+        <span className="w-9 h-9 rounded-full bg-canvas flex items-center justify-center text-gray-400 flex-shrink-0">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2.5" stroke="currentColor" strokeWidth="1.8"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>
+        </span>
+        <p className="text-[13px] text-gray-600 leading-snug">{players} registered. Register to see who else is playing.</p>
+      </div>
+    )
+  }
+  const shown = list.filter(e => !q.trim() || e.name.toLowerCase().includes(q.trim().toLowerCase()))
+  return (
+    <>
+      <div className="bg-white rounded-3xl shadow-card px-4 py-1">
+        <ul>{list.slice(0, 5).map(row)}</ul>
+      </div>
+      <button onClick={() => setOpen(true)} className="mt-2.5 w-full h-11 rounded-full bg-white shadow-card text-[13px] font-bold font-display text-ink active:scale-[0.99]">
+        See all {list.length} players
+      </button>
+      {open && (
+        <Sheet title="Who's playing" subtitle={`${players} registered · name, division and handicap only`} onClose={() => setOpen(false)}>
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Find a player" aria-label="Find a player"
+            className="h-11 w-full rounded-full bg-canvas px-4 text-[14px]" />
+          <ul>{shown.map(row)}</ul>
+          {shown.length === 0 && <p className="text-[14px] text-gray-500">No player matches "{q}".</p>}
+        </Sheet>
+      )}
+    </>
   )
 }
 
@@ -52,6 +104,7 @@ const divisionFor = (divisions: Division[] = [], hcp: number) => divisions.find(
 export default function TournamentDetails({ tournamentId, push, pop, showToast, showDialog }: TournamentDetailsProps) {
   useLiveVersion()
   const [loading, setLoading] = useState(true)
+  const [paying, setPaying] = useState(false)
   const tournament = getTournament(tournamentId)
 
   useEffect(() => {
@@ -127,15 +180,14 @@ export default function TournamentDetails({ tournamentId, push, pop, showToast, 
       return
     }
     if (!myDivision) { showToast('No division matches your handicap', 'error'); return }
-    const full = spotsLeft <= 0
+    // No waiting list (client answer T-04); paid entry online from the first release (T-06)
+    if (spotsLeft <= 0) { showToast('The field is full — contact the organiser', 'info'); return }
+    if (priceNow > 0) { setPaying(true); return }
     showDialog({
-      title: full ? 'Join the waiting list?' : 'Confirm your entry',
-      message: `${myDivision.name} division · ${formatMoney(priceNow, fees.currency)}${fees.perTeam ? ' per team' : ''}. ${full ? "You'll get a spot if someone withdraws." : `Free withdrawal until ${formatDateTime(reg.withdrawBy)}.`}`,
-      confirmLabel: full ? 'Join waitlist' : 'Register',
-      onConfirm: () => {
-        registerMe(t, myDivision.id, full)
-        showToast(full ? "You're on the waiting list" : `You're registered for ${t.name}!`)
-      },
+      title: 'Confirm your entry',
+      message: `${myDivision.name} division · free entry. Free withdrawal until ${formatDateTime(reg.withdrawBy)}.`,
+      confirmLabel: 'Register',
+      onConfirm: () => { registerMe(t, myDivision.id, false, 'free'); showToast(`You're registered for ${t.name}!`) },
     })
   }
 
@@ -159,8 +211,8 @@ export default function TournamentDetails({ tournamentId, push, pop, showToast, 
     : isClosed || !windowOpen ? <Button variant="ghost" disabled fullWidth>{now < reg.opensAt ? `Opens ${formatDay(reg.opensAt)}` : 'Registration closed'}</Button>
     : isComingSoon ? <Button fullWidth onClick={() => showToast("You'll be notified when registration opens")}>Notify me</Button>
     : problem ? <Button variant="ghost" disabled fullWidth>Not eligible</Button>
-    : spotsLeft <= 0 && !reg.waitlist ? <Button variant="ghost" disabled fullWidth>Fully booked</Button>
-    : <Button fullWidth onClick={register}>{spotsLeft <= 0 ? 'Join waitlist' : `Register · ${formatMoney(priceNow, fees.currency)}`}</Button>
+    : spotsLeft <= 0 ? <Button variant="ghost" disabled fullWidth>Field is full</Button>
+    : <Button fullWidth onClick={register}>{priceNow > 0 ? `Register & pay ${formatMoney(priceNow, fees.currency)}` : 'Register'}</Button>
 
   return (
     <div className="h-full flex flex-col bg-canvas relative">
@@ -257,7 +309,6 @@ export default function TournamentDetails({ tournamentId, push, pop, showToast, 
               <Row label="Registration opens" value={formatDateTime(reg.opensAt)} />
               <Row label="Closes" value={formatDateTime(reg.closesAt)} />
               <Row label="Free withdrawal until" value={formatDateTime(reg.withdrawBy)} />
-              {reg.waitlist && <Row label="Waiting list" value="When full" />}
             </dl>
             {reg.refundPolicy && <p className="text-[12px] text-gray-400 leading-relaxed mt-1">{reg.refundPolicy}</p>}
           </Section>
@@ -329,12 +380,18 @@ export default function TournamentDetails({ tournamentId, push, pop, showToast, 
             </Section>
           )}
 
+          {!isCancelled && (
+            <Section title="Who's playing">
+              <WhosPlaying t={t} players={players} isRegistered={isRegistered} />
+            </Section>
+          )}
+
           {(t.contactEmail || t.contactPhone || !!t.officials?.length) && (
             <Section title="Contacts">
               <dl className="divide-y divide-black/[0.05]">
                 {t.contactEmail && <Row label="Email" value={<a className="underline decoration-lime-500 underline-offset-4" href={`mailto:${t.contactEmail}`}>{t.contactEmail}</a>} />}
                 {t.contactPhone && <Row label="Phone" value={<a href={`tel:${t.contactPhone}`}>{t.contactPhone}</a>} />}
-                {t.officials?.map(o => <Row key={o.name} label={o.role} value={o.name} />)}
+                {t.officials?.filter(o => o.name.trim()).map(o => <Row key={o.name} label={o.role} value={o.name} />)}
               </dl>
             </Section>
           )}
@@ -350,6 +407,11 @@ export default function TournamentDetails({ tournamentId, push, pop, showToast, 
           {primaryAction}
         </div>
       </div>
+      {paying && myDivision && (
+        <PaymentSheet title={`Enter ${t.name}`} currency={fees.currency} total={priceNow} onClose={() => setPaying(false)}
+          lines={[['Division', myDivision.name], [fees.perTeam ? 'Entry (per team)' : 'Entry', formatMoney(priceNow, fees.currency)]]}
+          onPaid={() => { registerMe(t, myDivision.id, false, 'paid'); showToast(`Paid ${formatMoney(priceNow, fees.currency)} — you're registered!`) }} />
+      )}
     </div>
   )
 }

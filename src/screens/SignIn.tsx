@@ -3,12 +3,22 @@ import type { ToastData } from '../types'
 import { Button, Input, IconEye, fieldClass } from '../components'
 
 interface SignInProps {
-  onSignIn: () => void
+  /** false = known account, wrong password */
+  onSignIn: (email: string, password: string) => boolean
   onSignUp: () => void
   showToast: (message: string, type?: ToastData['type']) => void
 }
 
 type SignInState = 'idle' | 'loading' | 'error' | 'server-error'
+
+/** Prototype only: one tap fills a demo login for each role */
+const DEMO_ROLES = [
+  { role: 'Golfer', email: 'alex.hartwell@golfclub.com', password: 'golfer' },
+  { role: 'Organiser', email: 'dana@augustapines.com', password: 'augusta' },
+  { role: 'Marshal', email: 'marshal@gmail.com', password: 'marshal' },
+  { role: 'Official', email: 'official@gmail.com', password: 'official' },
+  { role: 'Admin', email: 'admin@gmail.com', password: 'admin' },
+]
 
 export default function SignIn({ onSignIn, onSignUp, showToast }: SignInProps) {
   const [email, setEmail]           = useState('')
@@ -54,8 +64,9 @@ export default function SignIn({ onSignIn, onSignUp, showToast }: SignInProps) {
         setState('error')
         return
       }
+      // One sign-in for every role: the account decides which tabs open
+      if (!onSignIn(email, password)) return setState('error')
       setState('idle')
-      onSignIn()
     }, 1600)
   }
 
@@ -184,6 +195,18 @@ export default function SignIn({ onSignIn, onSignUp, showToast }: SignInProps) {
             {state === 'loading' ? 'Signing in…' : 'Sign In'}
           </Button>
         </form>
+
+        <div className="mt-5 rounded-2xl bg-white shadow-card px-4 py-3">
+          <p className="text-[11px] font-bold font-display text-gray-500">Try a role (demo)</p>
+          <div className="flex flex-wrap gap-1.5 mt-2">
+            {DEMO_ROLES.map(r => (
+              <button key={r.role} type="button" onClick={() => { setEmail(r.email); setPassword(r.password); setEmailError(''); setPwError('') }}
+                className={`h-8 px-3 rounded-full text-[12px] font-bold font-display ${email === r.email ? 'bg-ink text-white' : 'bg-canvas text-ink'}`}>
+                {r.role}
+              </button>
+            ))}
+          </div>
+        </div>
 
         <p className="text-center text-sm text-gray-500 mt-6">
           Don't have an account?{' '}

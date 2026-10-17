@@ -20,9 +20,23 @@ export interface Entry {
   handicapIndex: number
   gender: 'men' | 'women'
   divisionId: string
+  /** 'waitlist' is only in older saved data: the client chose no waiting lists (organisers manage the field) */
   status: 'registered' | 'waitlist' | 'withdrawn'
   /** The signed-in golfer */
   isMe?: boolean
+  /** Organiser moved this player to other tees; otherwise the division's tees. Fixed once they tee off. */
+  teeSetId?: string
+  email?: string
+  /** Who entered the golfer: the golfer online, or the organiser on their behalf */
+  registeredBy?: 'self' | 'organiser'
+  paymentStatus?: PaymentStatus
+}
+
+/** paid = online by card · pay-at-course = collected on the day · waived = no charge · link-sent = organiser emailed a payment link · free = no fee */
+export type PaymentStatus = 'paid' | 'pay-at-course' | 'waived' | 'link-sent' | 'free'
+
+export const PAYMENT_LABEL: Record<PaymentStatus, string> = {
+  paid: 'Paid online', 'pay-at-course': 'Pay at course', waived: 'Fee waived', 'link-sent': 'Payment link sent', free: 'Free entry',
 }
 
 export interface TeeGroup {
@@ -52,7 +66,8 @@ interface LiveData {
   shots: Record<string, Record<string, Record<number, Record<number, Shot[]>>>>
 }
 
-const STORAGE_KEY = 'gtp-live-v1'
+// v2: entries carry registeredBy / paymentStatus; groups seeded for pace of play
+const STORAGE_KEY = 'gtp-live-v2'
 
 const FIRST = ['James', 'Olivia', 'Liam', 'Emma', 'Noah', 'Ava', 'Ethan', 'Sophia', 'Lucas', 'Mia', 'Mason', 'Isla', 'Logan', 'Grace', 'Owen', 'Chloe', 'Caleb', 'Zoe', 'Ryan', 'Nora', 'Henry', 'Ella', 'Jack', 'Lily']
 const LAST = ['Carter', 'Nguyen', 'Patel', 'Walsh', 'Brennan', 'Okafor', 'Lindqvist', 'Moreno', 'Fraser', 'Kim', 'Duarte', 'Shaw', 'Hughes', 'Rossi', 'Tanaka', 'Murphy', 'Becker', 'Lopez', 'Reid', 'Silva', 'Ahmed', 'Grant', 'Cole', 'Price']
@@ -104,6 +119,9 @@ function seedField(t: Tournament, count: number, includeMe: boolean) {
       gender: i % 4 === 3 ? 'women' : 'men',
       divisionId: division(index),
       status: 'registered',
+      email: `${FIRST[(i * 7 + t.id.length) % FIRST.length]}.${LAST[(i * 5 + 3) % LAST.length]}${i}@example.com`.toLowerCase(),
+      registeredBy: i % 5 === 4 ? 'organiser' : 'self',
+      paymentStatus: i % 5 === 4 ? 'pay-at-course' : 'paid',
     })
   }
   if (includeMe) {
@@ -116,6 +134,9 @@ function seedField(t: Tournament, count: number, includeMe: boolean) {
       divisionId: division(MOCK_PROFILE.handicapIndex),
       status: 'registered',
       isMe: true,
+      email: MOCK_PROFILE.email,
+      registeredBy: 'self',
+      paymentStatus: 'paid',
     })
   }
   return entries
@@ -135,9 +156,16 @@ function seed(): LiveData {
       const course = getCourse(t.courseId)
       if (!course) continue
       const holes = roundHoles(t, course, 1)
+      // Live: each group is about a hole behind the one ahead and the golfer is on hole 5. The group after
+      // theirs is slow (an empty hole in front of them) and holds up everyone behind, so the marshal has work to do
+      const groups = groupsFor(t.id, 1)
+      const meGroup = Math.max(0, groups.findIndex(g => g.entryIds.some(id => id.endsWith('-me'))))
+      const slowGroup = meGroup + 1 < groups.length ? meGroup + 1 : -1
+      const groupThru = (gi: number) => Math.max(0, 4 + meGroup - gi - (slowGroup >= 0 && gi >= slowGroup ? 2 : 0))
       for (const e of entriesFor(t.id)) {
-        // Completed events are fully scored; live ones are part-way round. The golfer is on hole 5.
-        const played = t.status === 'completed' ? holes.length : e.isMe ? 4 : 3 + Math.floor(rand(`${e.id}-thru`) * 9)
+        // Completed events are fully scored; live ones are part-way round
+        const gi = groups.findIndex(g => g.entryIds.includes(e.id))
+        const played = t.status === 'completed' ? holes.length : e.isMe ? 4 : Math.max(0, groupThru(gi) - (rand(`${e.id}-thru`) < 0.25 ? 1 : 0))
         const card = holes.map((h, i) => (i < played ? simulatedScore(`${e.id}-${h.hole}`, h, e.handicapIndex) : null))
         ;((fresh.scores[t.id] ??= {})[e.id] ??= {})[1] = card
         if (t.status === 'completed') ((fresh.cardState[t.id] ??= {})[e.id] ??= {})[1] = 'verified'
@@ -165,10 +193,10 @@ function adjustPlayers(tournamentId: string, delta: number) {
   if (t) t.players = Math.max(0, t.players + delta)
 }
 
-export function registerMe(t: Tournament, divisionId: string, waitlist = false) {
+export function registerMe(t: Tournament, divisionId: string, waitlist = false, paymentStatus: PaymentStatus = 'paid') {
   const existing = data.entries.find(e => e.tournamentId === t.id && e.isMe)
   const wasRegistered = existing?.status === 'registered'
-  if (existing) Object.assign(existing, { status: waitlist ? 'waitlist' : 'registered', divisionId })
+  if (existing) Object.assign(existing, { status: waitlist ? 'waitlist' : 'registered', divisionId, registeredBy: 'self', paymentStatus })
   else {
     data.entries.push({
       id: `${t.id}-me`,
@@ -179,6 +207,9 @@ export function registerMe(t: Tournament, divisionId: string, waitlist = false) 
       divisionId,
       status: waitlist ? 'waitlist' : 'registered',
       isMe: true,
+      email: MOCK_PROFILE.email,
+      registeredBy: 'self',
+      paymentStatus,
     })
   }
   save()
@@ -192,6 +223,75 @@ export function withdrawMe(tournamentId: string) {
   save()
   if (wasRegistered) adjustPlayers(tournamentId, -1)
 }
+
+export interface NewEntryInput {
+  firstName: string
+  lastName: string
+  email: string
+  handicapIndex: number
+  gender: 'men' | 'women'
+  divisionId: string
+  teeSetId?: string
+  paymentStatus: PaymentStatus
+}
+
+/**
+ * The organiser registers a golfer on their behalf (client, 17 Oct). Same rules as golfers registering
+ * themselves: no waiting list, so a full field refuses; one entry per golfer.
+ */
+export function addEntry(t: Tournament, input: NewEntryInput): { ok: true; entry: Entry } | { ok: false; error: string; field?: 'email' | 'capacity' } {
+  const field = entriesFor(t.id).filter(e => e.status === 'registered')
+  if (Math.max(t.players, field.length) >= t.maxPlayers) return { ok: false, field: 'capacity', error: 'The field is full — there is no waiting list.' }
+  const email = input.email.trim().toLowerCase()
+  if (field.some(e => e.email?.toLowerCase() === email)) return { ok: false, field: 'email', error: 'This golfer is already registered.' }
+  const entry: Entry = {
+    id: `${t.id}-o${Date.now().toString(36)}`,
+    tournamentId: t.id,
+    name: `${input.firstName.trim()} ${input.lastName.trim()}`,
+    handicapIndex: input.handicapIndex,
+    gender: input.gender,
+    divisionId: input.divisionId,
+    teeSetId: input.teeSetId,
+    status: 'registered',
+    email,
+    registeredBy: 'organiser',
+    paymentStatus: input.paymentStatus,
+  }
+  data.entries.push(entry)
+  save()
+  adjustPlayers(t.id, 1)
+  return { ok: true, entry }
+}
+
+/** Who's playing: the registered field, by surname. Shown only to golfers registered for the tournament. */
+export const registrantsFor = (tournamentId: string) =>
+  entriesFor(tournamentId)
+    .filter(e => e.status === 'registered')
+    .sort((a, b) => (a.name.split(' ').slice(-1)[0] ?? '').localeCompare(b.name.split(' ').slice(-1)[0] ?? '') || a.name.localeCompare(b.name))
+
+/** Organiser edits to a player in the field: replace (name, handicap), change tees or division, remove. */
+export function updateEntry(entryId: string, patch: Partial<Pick<Entry, 'name' | 'handicapIndex' | 'gender' | 'divisionId' | 'teeSetId' | 'status'>>) {
+  const e = data.entries.find(x => x.id === entryId)
+  if (!e) return
+  const wasRegistered = e.status === 'registered'
+  Object.assign(e, patch)
+  if (patch.status === 'withdrawn') data.groups.forEach(g => { g.entryIds = g.entryIds.filter(id => id !== entryId) })
+  save()
+  if (wasRegistered && patch.status === 'withdrawn') adjustPlayers(e.tournamentId, -1)
+}
+
+/** Moves a player into another tee group for the round (organisers rearrange groups by hand). */
+export function moveToGroup(tournamentId: string, round: number, entryId: string, groupId: string) {
+  for (const g of groupsFor(tournamentId, round)) {
+    g.entryIds = g.entryIds.filter(id => id !== entryId)
+    if (g.id === groupId) g.entryIds.push(entryId)
+  }
+  save()
+}
+
+/** The tees a player plays from: an organiser's override, else their division's */
+export const teeSetIdFor = (t: Tournament, entry: Entry) =>
+  entry.teeSetId ?? t.divisions?.find(d => d.id === entry.divisionId)?.teeSetId
 
 /* ───────── Rounds, tee sheet ───────── */
 
@@ -313,7 +413,7 @@ export function leaderboard(t: Tournament, round = 1, divisionId?: string): Lead
   const rows = entriesFor(t.id)
     .filter(e => e.status === 'registered' && (!divisionId || e.divisionId === divisionId))
     .map(entry => {
-      const tee = course.teeSets?.find(ts => ts.id === t.divisions?.find(d => d.id === entry.divisionId)?.teeSetId)
+      const tee = course.teeSets?.find(ts => ts.id === teeSetIdFor(t, entry))
       const fullPlaying = playingHandicap(entry.handicapIndex, tee, coursePar, allowance, entry.gender)
       // Nine-hole rounds get half the strokes
       const playing = holes.length === 9 ? Math.round(fullPlaying / 2) : fullPlaying
@@ -352,6 +452,7 @@ export function leaderboard(t: Tournament, round = 1, divisionId?: string): Lead
 
 ;(function load() {
   try {
+    localStorage.removeItem('gtp-live-v1') // before role-based screens
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) { data = JSON.parse(raw); return }
   } catch { /* fall through to seed */ }

@@ -192,9 +192,9 @@ export const MOCK_TOURNAMENTS: Tournament[] = [
   {
     id: 't1',
     name: 'Augusta Pines Classic Open',
-    dateRange: 'Oct 12–15, 2026',
-    startDate: '2026-10-12',
-    endDate: '2026-10-15',
+    dateRange: 'Nov 12–15, 2026',
+    startDate: '2026-11-12',
+    endDate: '2026-11-15',
     time: '7:30 AM shotgun start',
     venue: 'Augusta Pines Golf Club',
     location: 'Augusta, Georgia, USA',
@@ -207,6 +207,12 @@ export const MOCK_TOURNAMENTS: Tournament[] = [
       'The Augusta Pines Classic Open is the premier amateur strokeplay event in the American South. Now in its 18th year, the tournament attracts over 100 of the region\'s finest amateur golfers competing across four rounds for the historic sterling trophy. The course will be set up at full championship distance with USGA-compliant conditions.',
     courseId: 'c1',
     registrationStatus: 'open',
+    // Run by Augusta Pines Golf Club (organiser login dana@augustapines.com) — open for registration
+    organizerId: 'o-augusta',
+    officials: [
+      { name: 'Dana Whitfield', role: 'Tournament director', phone: '+1 (706) 555-0110' },
+      { name: 'Ravi Menon', role: 'Marshal', phone: '+1 (706) 555-0131', email: 'marshal@gmail.com', invitedAt: '2026-10-01T09:00:00' },
+    ],
     players: 87,
     maxPlayers: 120,
     entryFee: '$250',
@@ -231,6 +237,10 @@ export const MOCK_TOURNAMENTS: Tournament[] = [
       'Set against the dramatic backdrop of the California coastline, the Carmel Bay Stableford Cup is a three-day celebration of golf. The modified Stableford scoring format rewards bold, attacking play while protecting against blowout holes. Players of all handicap levels are welcomed. Ocean views from every hole make this one of the most scenic events on the calendar.',
     courseId: 'c2',
     registrationStatus: 'coming-soon',
+    officials: [
+      // The demo golfer volunteers as marshal here: one account, two roles
+      { name: 'Alexander Hartwell', role: 'Marshal', phone: '+1 (404) 555-0182', email: 'alex.hartwell@golfclub.com', invitedAt: '2026-10-02T09:00:00' },
+    ],
     players: 0,
     maxPlayers: 80,
     entryFee: '$320',
@@ -279,6 +289,9 @@ export const MOCK_TOURNAMENTS: Tournament[] = [
       'The Lowcountry Scramble Invitational brings together teams of four for a fun, fast-paced day of golf in historic Savannah. The scramble format — where the team plays from the best shot each hole — makes this event accessible and highly social. Past winners have posted scores as low as 15-under par. An end-of-day dinner and awards ceremony rounds out the experience.',
     courseId: 'c1',
     registrationStatus: 'closed',
+    officials: [
+      { name: 'Ravi Menon', role: 'Marshal', phone: '+1 (706) 555-0131', email: 'marshal@gmail.com', invitedAt: '2026-08-20T09:00:00' },
+    ],
     players: 40,
     maxPlayers: 40,
     entryFee: '$120/team',
@@ -382,8 +395,13 @@ export const MOCK_TOURNAMENTS: Tournament[] = [
     teeSheet: { startType: 'tee-times', firstTeeTime: '07:30', intervalMinutes: 10, groupSize: 4, startingTees: 'first' },
     officials: [
       { name: 'Dana Whitfield', role: 'Tournament director', phone: '+1 (706) 555-0110' },
-      { name: 'Marcus Lee', role: 'Rules official', phone: '+1 (706) 555-0124' },
+      // Logins for this tournament only (demo passwords in ops.ts): marshal@gmail.com / marshal, official@gmail.com / official
+      { name: 'Ravi Menon', role: 'Marshal', phone: '+1 (706) 555-0131', email: 'marshal@gmail.com', invitedAt: '2026-09-30T10:00:00' },
+      { name: 'Helen Brooks', role: 'Tournament official', phone: '+1 (706) 555-0124', email: 'official@gmail.com', invitedAt: '2026-09-30T10:00:00' },
+      { name: '', role: 'Marshal', phone: '' },
     ],
+    organizerId: 'o-augusta',
+    pace: { targetMinutes: 255, flagMinutes: 10 },
     contactEmail: 'events@augustapines.com',
     contactPhone: '+1 (706) 555-0100',
     localRules: [
