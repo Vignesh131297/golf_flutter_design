@@ -53,7 +53,19 @@ function HoleGuide({ course }: { course: Course }) {
         ))}
       </div>
       <div className="mt-2">
-        <HoleMapView map={map} size="sm" ariaLabel={`Hole ${hole.hole} layout`} />
+        {/* The course's own picture of the hole (from its website or scorecard); a sketch without one */}
+        {hole.imageUrl ? (
+          <a href={hole.imageUrl} target="_blank" rel="noreferrer" className="block rounded-3xl overflow-hidden bg-canvas">
+            <img src={hole.imageUrl} alt={`Hole ${hole.hole} from ${course.name}`} className="w-full aspect-[4/5] object-cover" />
+          </a>
+        ) : (
+          <HoleMapView map={map} size="sm" ariaLabel={`Hole ${hole.hole} layout`} />
+        )}
+        <p className="text-[11px] text-gray-400 mt-1.5">
+          {hole.imageUrl
+            ? `Image: ${course.holeImageSource ?? `${course.name} scorecard`}`
+            : "Sketch. The course's own picture of this hole shows here once it's added."}
+        </p>
       </div>
       <p className="font-display font-extrabold text-ink text-[19px] tracking-tight mt-3">Hole {hole.hole}{hole.name ? ` · ${hole.name}` : ''}</p>
       <p className="text-[13px] text-gray-500">Par {hole.par}{hole.parWomen && hole.parWomen !== hole.par ? ` (women ${hole.parWomen})` : ''} · Stroke index {hole.handicap}</p>
@@ -76,7 +88,7 @@ interface CourseDetailsProps extends SharedNavProps {
 
 export default function CourseDetails({ courseId, push, pop, showToast }: CourseDetailsProps) {
   const [loading, setLoading]  = useState(true)
-  const [showAll, setShowAll]  = useState(false)
+  const [nine, setNine]        = useState<'front' | 'back' | 'all'>('front')
 
   const course      = getCourse(courseId)
   const tournaments = getTournamentsByCourse(courseId)
@@ -113,10 +125,16 @@ export default function CourseDetails({ courseId, push, pop, showToast }: Course
 
   const frontNine = course.holeData.slice(0, 9)
   const backNine  = course.holeData.slice(9, 18)
-  const displayHoles = showAll ? course.holeData : frontNine
-
-  const frontPar = frontNine.reduce((s, h) => s + h.par, 0)
-  const frontYds = frontNine.reduce((s, h) => s + h.yards, 0)
+  const canSplit = course.holes === 18 && backNine.length > 0
+  const shown = canSplit ? nine : 'front'
+  const displayHoles = shown === 'all' ? course.holeData : shown === 'back' ? backNine : frontNine
+  const totals = (label: string, holes: typeof frontNine) =>
+    ({ label, par: holes.reduce((s, h) => s + h.par, 0), yds: holes.reduce((s, h) => s + h.yards, 0) })
+  const totalRows = [
+    ...(shown !== 'back' ? [totals('OUT', frontNine)] : []),
+    ...(shown !== 'front' && backNine.length ? [totals('IN', backNine)] : []),
+    ...(shown === 'all' ? [totals('TOT', course.holeData)] : []),
+  ]
 
   const stats: [string | number, string][] = [
     [course.holes, 'Holes'],
@@ -220,14 +238,15 @@ export default function CourseDetails({ courseId, push, pop, showToast }: Course
           <div>
             <div className="flex items-center justify-between mb-3">
               <h2 className="font-display font-bold text-ink text-[17px] tracking-tight">Scorecard</h2>
-              {course.holes === 18 && backNine.length > 0 && (
+              {canSplit && (
                 <div className="flex bg-canvas rounded-full p-1">
-                  {(['Front 9', 'All 18'] as const).map((label, i) => {
-                    const active = showAll === (i === 1)
+                  {([['front', 'Front 9'], ['back', 'Back 9'], ['all', `All ${course.holes}`]] as const).map(([value, label]) => {
+                    const active = shown === value
                     return (
                       <button
-                        key={label}
-                        onClick={() => setShowAll(i === 1)}
+                        key={value}
+                        aria-pressed={active}
+                        onClick={() => setNine(value)}
                         className={`h-7 px-3 rounded-full text-[12px] font-bold font-display transition-all ${
                           active ? 'bg-ink text-white' : 'text-gray-500'
                         }`}
@@ -262,13 +281,19 @@ export default function CourseDetails({ courseId, push, pop, showToast }: Course
                 ))}
               </div>
 
-              <div className="grid text-center" style={cols}>
-                <div className="py-2.5 text-[11px] font-bold font-display text-ink">OUT</div>
-                <div className="py-2.5 text-[13px] font-bold text-ink">{frontPar}</div>
-                <div className="py-2.5 text-[13px] font-bold text-ink">{frontYds}</div>
-                <div className="py-2.5 text-[13px] text-gray-400">—</div>
-              </div>
+              {totalRows.map(t => (
+                <div key={t.label} className="grid text-center" style={cols}>
+                  <div className="py-2.5 text-[11px] font-bold font-display text-ink">{t.label}</div>
+                  <div className="py-2.5 text-[13px] font-bold text-ink">{t.par}</div>
+                  <div className="py-2.5 text-[13px] font-bold text-ink">{t.yds}</div>
+                  <div className="py-2.5 text-[13px] text-gray-400">—</div>
+                </div>
+              ))}
             </div>
+            {course.scorecardImageUrl && (
+              <a href={course.scorecardImageUrl} target="_blank" rel="noreferrer"
+                className="mt-2 inline-flex items-center gap-1.5 text-[13px] font-bold font-display text-ink">View the club's scorecard ›</a>
+            )}
           </div>
 
           <TeesList course={course} />

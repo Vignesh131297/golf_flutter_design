@@ -1,4 +1,4 @@
-import { handicapText, headlineStat } from '../account-rules'
+import { handicapText, headlineStat, gloveText } from '../account-rules'
 import { useState, useEffect } from 'react'
 import type { SharedNavProps } from '../types'
 import {
@@ -116,7 +116,7 @@ export default function Profile({ push, showToast, onSignOut, onSwitchRole }: Pr
           />
 
           <div className="relative flex items-start justify-between">
-            <Avatar initials={profile.avatarInitials} size="lg" ring />
+            <Avatar initials={profile.avatarInitials} photo={profile.photoUrl} size="lg" ring />
             <button
               onClick={() => push('edit-profile')}
               className="flex items-center gap-1.5 h-9 px-3.5 rounded-full bg-white/10 border border-white/15 active:bg-white/20 transition-colors"
@@ -195,6 +195,7 @@ export default function Profile({ push, showToast, onSignOut, onSwitchRole }: Pr
             <InfoItem label="Preferred contact" value={profile.preferredContact ?? 'Email'} />
             <InfoItem label="Dietary" value={[...profile.dietary, profile.dietaryNote].filter(Boolean).join(', ') || 'None'} />
             {profile.shirtSize && <InfoItem label="Shirt size" value={profile.shirtSize} />}
+            {profile.gloveSize || profile.gloveHand ? <InfoItem label="Glove" value={gloveText(profile.gloveSize, profile.gloveHand)} /> : null}
           </div>
         </Group>
 

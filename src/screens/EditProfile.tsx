@@ -1,9 +1,10 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
 import type { SharedNavProps } from '../types'
-import { Button, Input, SelectField, ChoiceChips, TopAppBar, Avatar, fieldClass } from '../components'
+import { Button, Input, SelectField, ChoiceChips, PhoneInput, ProfilePhotoPicker, TopAppBar, fieldClass } from '../components'
 import { MOCK_PROFILE, MOCK_COURSES } from '../data'
 import {
   COUNTRIES, GENDERS, ISSUING_BODIES, RELATIONSHIPS, CONTACT_METHODS, DIETARY, TEE_OPTIONS, JUNIOR_UNDER,
+  SHIRT_SIZES, GLOVE_SIZES, GLOVE_HANDS,
   draftFromProfile, validateProfileEdit, profilePatch, needsRatingsChoice, toggleDietary, ageOn,
   type GolferDraft, type Identity, type Errors,
 } from '../account-rules'
@@ -31,6 +32,7 @@ export default function EditProfile({ pop, showToast }: SharedNavProps) {
   const [d, setD] = useState<GolferDraft>(() => draftFromProfile(p))
   const [errors, setErrors] = useState<Errors>({})
   const [saving, setSaving] = useState(false)
+  const [photo, setPhoto] = useState(p.photoUrl)
 
   const setIdentity = (k: keyof Identity, v: string) => { setWho(x => ({ ...x, [k]: v })); if (errors[k]) setErrors(x => ({ ...x, [k]: undefined })) }
   const set = <K extends keyof GolferDraft>(k: K, v: GolferDraft[K]) => { setD(x => ({ ...x, [k]: v })); if (errors[k]) setErrors(x => ({ ...x, [k]: undefined })) }
@@ -46,7 +48,7 @@ export default function EditProfile({ pop, showToast }: SharedNavProps) {
     if (Object.values(errs).some(Boolean)) return
     setSaving(true)
     setTimeout(() => {
-      Object.assign(MOCK_PROFILE, profilePatch(who, d, p))
+      Object.assign(MOCK_PROFILE, profilePatch(who, d, p), { photoUrl: photo })
       setSaving(false)
       showToast(emailChanged ? `Saved — enter the code we sent to ${who.email.trim()} to verify it` : 'Profile updated successfully', 'success')
       pop()
@@ -61,7 +63,7 @@ export default function EditProfile({ pop, showToast }: SharedNavProps) {
         <form onSubmit={handleSubmit} noValidate>
           <div className="px-5 pt-2 pb-8 space-y-5">
             <div className="flex flex-col items-center gap-2 py-2">
-              <Avatar initials={`${who.firstName[0] ?? ''}${who.lastName[0] ?? ''}`.toUpperCase() || p.avatarInitials} size="xl" />
+              <ProfilePhotoPicker initials={`${who.firstName[0] ?? ''}${who.lastName[0] ?? ''}`.toUpperCase() || p.avatarInitials} photo={photo} onChange={setPhoto} />
               <p className="text-[12px] text-gray-400 text-center px-6">Your email, phone, date of birth and address are never shown to other golfers.</p>
             </div>
 
@@ -72,7 +74,7 @@ export default function EditProfile({ pop, showToast }: SharedNavProps) {
               </div>
               <Input label="Email address *" type="email" inputMode="email" value={who.email} onChange={e => setIdentity('email', e.target.value)} error={errors.email} autoComplete="email"
                 hint={emailChanged ? "You'll need to verify the new address before registering for tournaments" : undefined} />
-              <Input label="Mobile phone *" type="tel" inputMode="tel" value={who.phone} onChange={e => setIdentity('phone', e.target.value)} error={errors.phone} autoComplete="tel" />
+              <PhoneInput label="Mobile phone *" value={who.phone} onChange={v => setIdentity('phone', v)} error={errors.phone} preferCountry={d.country} autoComplete="tel" />
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="dob" className="text-[13px] font-semibold text-gray-600 font-display">Date of birth *</label>
                 <input id="dob" type="date" value={d.dob} onChange={e => set('dob', e.target.value)} max={new Date().toISOString().split('T')[0]} className={fieldClass(!!errors.dob)} />
@@ -112,6 +114,13 @@ export default function EditProfile({ pop, showToast }: SharedNavProps) {
               <ChoiceChips label="Preferred tee" options={TEE_OPTIONS} value={d.tee} onChange={v => set('tee', v as string)} hint="Optional — each tournament sets the tees" />
             </FormCard>
 
+            <FormCard title="Player pack" hint="Optional · sizes for the tournament shirt and glove">
+                <ChoiceChips label="Shirt / apparel size" options={SHIRT_SIZES} value={d.shirt} onChange={v => set('shirt', d.shirt === v ? '' : v as string)} />
+                <ChoiceChips label="Glove size" options={GLOVE_SIZES} value={d.glove} onChange={v => set('glove', d.glove === v ? '' : v as string)} />
+                <ChoiceChips label="Glove hand" options={GLOVE_HANDS} value={d.gloveHand} onChange={v => set('gloveHand', d.gloveHand === v ? '' : v as GolferDraft['gloveHand'])}
+                  hint="Right-handed golfers usually wear a left-hand glove" />
+            </FormCard>
+
             <FormCard title="Preferences">
               <ChoiceChips label="Preferred contact method *" options={[...CONTACT_METHODS]} value={d.contact} onChange={v => set('contact', v as GolferDraft['contact'])} error={errors.contact} />
               <ChoiceChips label="Dietary requirements" options={DIETARY} value={d.dietary} onChange={v => set('dietary', toggleDietary(d.dietary, v as string[]))} error={errors.dietary} hint="Select all that apply" />
@@ -120,7 +129,7 @@ export default function EditProfile({ pop, showToast }: SharedNavProps) {
 
             <FormCard title="Emergency contact">
               <Input label="Name *" value={d.ecName} onChange={e => set('ecName', e.target.value)} error={errors.ecName} />
-              <Input label="Phone *" type="tel" inputMode="tel" value={d.ecPhone} onChange={e => set('ecPhone', e.target.value)} error={errors.ecPhone} />
+              <PhoneInput label="Phone *" value={d.ecPhone} onChange={v => set('ecPhone', v)} error={errors.ecPhone} preferCountry={d.country} />
               <SelectField label="Relationship" placeholder="Optional" value={d.ecRelationship} onChange={v => set('ecRelationship', v)} options={RELATIONSHIPS} />
             </FormCard>
 

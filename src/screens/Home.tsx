@@ -66,7 +66,7 @@ export default function Home({ push, showToast }: SharedNavProps) {
 
         {/* Greeting */}
         <div className="flex items-center gap-3">
-          <Avatar initials={profile.avatarInitials} size="md" />
+          <Avatar initials={profile.avatarInitials} photo={profile.photoUrl} size="md" />
           <div className="min-w-0">
             <p className="text-[13px] text-gray-500 font-medium">{greeting} 👋</p>
             <h2 className="font-display font-extrabold text-ink text-[20px] leading-tight tracking-tight truncate">

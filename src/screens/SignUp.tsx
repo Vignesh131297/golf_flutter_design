@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { Button, Input, PasswordInput, RoundButton, IconBack } from '../components'
+import { Button, Input, PasswordInput, PhoneInput, RoundButton, IconBack } from '../components'
 import { isBlockedPassword, nameError, phoneError, EMAIL_RE } from '../account-rules'
 
 export interface AccountBasics {
@@ -126,15 +126,12 @@ export default function SignUp({ onBack, onContinue }: SignUpProps) {
             inputMode="email"
             onCanvas
           />
-          <Input
+          <PhoneInput
             label="Mobile phone"
-            type="tel"
-            placeholder="+1 (404) 555-0000"
             value={phone}
-            onChange={e => { setPhone(e.target.value); clear('phone') }}
+            onChange={v => { setPhone(v); clear('phone') }}
             error={errors.phone}
             autoComplete="tel"
-            inputMode="tel"
             onCanvas
           />
 

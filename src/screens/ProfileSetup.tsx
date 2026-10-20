@@ -1,10 +1,11 @@
 import { useState, type ReactNode } from 'react'
 import type { NewAccount } from '../types'
-import { Button, Input, SelectField, ChoiceChips, RoundButton, IconBack, fieldClass } from '../components'
+import { Button, Input, SelectField, ChoiceChips, PhoneInput, RoundButton, IconBack, fieldClass } from '../components'
 import type { AccountBasics } from './SignUp'
 import { MOCK_COURSES } from '../data'
 import {
   COUNTRIES, GENDERS, ISSUING_BODIES, RELATIONSHIPS, CONTACT_METHODS, DIETARY, TEE_OPTIONS, JUNIOR_UNDER,
+  SHIRT_SIZES, GLOVE_SIZES, GLOVE_HANDS,
   emptyGolferDraft, validateGolferStep, needsRatingsChoice, toggleDietary, toNewAccount, ageOn,
   type GolferDraft, type GolferStep, type Errors,
 } from '../account-rules'
@@ -24,7 +25,7 @@ interface ProfileSetupProps {
 const STEPS: { key: GolferStep; title: string; subtitle: string }[] = [
   { key: 'about', title: 'About you', subtitle: 'Personal details and who to contact in an emergency' },
   { key: 'game', title: 'Your game', subtitle: 'Handicap and where you usually play' },
-  { key: 'prefs', title: 'Preferences', subtitle: 'How organisers contact you, and catering' },
+  { key: 'prefs', title: 'Preferences', subtitle: 'How organisers contact you, your player pack and catering' },
 ]
 
 function FormCard({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
@@ -138,7 +139,7 @@ export default function ProfileSetup({ basics, emailVerified, onBack, onComplete
               </FormCard>
               <FormCard title="Emergency contact">
                 <Input label="Name *" placeholder="Full name" value={d.ecName} onChange={e => set('ecName', e.target.value)} error={errors.ecName} autoComplete="off" />
-                <Input label="Phone *" type="tel" inputMode="tel" placeholder="+1 416 555 0000" value={d.ecPhone} onChange={e => set('ecPhone', e.target.value)} error={errors.ecPhone} autoComplete="off" />
+                <PhoneInput label="Phone *" value={d.ecPhone} onChange={v => set('ecPhone', v)} error={errors.ecPhone} preferCountry={d.country} autoComplete="off" />
                 <SelectField label="Relationship" placeholder="Optional" value={d.ecRelationship} onChange={v => set('ecRelationship', v)} options={RELATIONSHIPS} />
               </FormCard>
             </>
@@ -184,6 +185,12 @@ export default function ProfileSetup({ basics, emailVerified, onBack, onComplete
               <FormCard title="Contact">
                 <ChoiceChips label="Preferred contact method *" options={[...CONTACT_METHODS]} value={d.contact}
                   onChange={v => set('contact', v as GolferDraft['contact'])} error={errors.contact} hint="How organisers reach you about your tournaments" />
+              </FormCard>
+              <FormCard title="Player pack" hint="Optional · sizes for the tournament shirt and glove">
+                <ChoiceChips label="Shirt / apparel size" options={SHIRT_SIZES} value={d.shirt} onChange={v => set('shirt', d.shirt === v ? '' : v as string)} />
+                <ChoiceChips label="Glove size" options={GLOVE_SIZES} value={d.glove} onChange={v => set('glove', d.glove === v ? '' : v as string)} />
+                <ChoiceChips label="Glove hand" options={GLOVE_HANDS} value={d.gloveHand} onChange={v => set('gloveHand', d.gloveHand === v ? '' : v as GolferDraft['gloveHand'])}
+                  hint="Right-handed golfers usually wear a left-hand glove" />
               </FormCard>
               <FormCard title="Catering" hint="Optional">
                 <ChoiceChips label="Dietary requirements" options={DIETARY} value={d.dietary}
