@@ -3,15 +3,17 @@ import type { Division, SharedNavProps, Tournament } from '../types'
 import {
   Button, StatusBadge, GlassChip, InfoTile, SpotsBar, RoundButton, SkeletonRow, ErrorState,
   IconBack, IconCalendar, IconPin, IconClock, IconCourse, IconUsers, IconCheckCircle,
+  VerifiedTick,
 } from '../components'
 import { getTournament, getCourse, MOCK_PROFILE } from '../data'
 import { ratingsGenderOf } from '../account-rules'
-import { entriesFor, groupOf, myEntry, registerMe, registrantsFor, useLiveVersion, withdrawMe } from '../live'
+import { entriesFor, groupOf, myEntry, registerMe, registrantsFor, ticksFor, useLiveVersion, withdrawMe } from '../live'
 import { Sheet } from '../ops-ui'
 import {
   TIE_BREAK_OPTIONS, formatClock, formatDateTime, formatDay, formatMoney, isoDate, isoLocalDateTime, teeSwatch, teeTotal,
 } from '../golf'
 import { PaymentSheet } from '../payments'
+import MoreTournaments from './MoreTournaments'
 
 interface TournamentDetailsProps extends SharedNavProps {
   tournamentId: string
@@ -39,10 +41,10 @@ function WhosPlaying({ t, players, isRegistered }: { t: Tournament; players: num
         {e.name.split(/\s+/).map(w => w[0]).slice(0, 2).join('')}
       </span>
       <span className="flex-1 min-w-0">
-        <span className="block text-[14px] font-semibold text-ink truncate">{e.name}{e.isMe && <span className="ml-1.5 text-[11px] font-bold text-pine-700">You</span>}</span>
+        <span className="flex items-center gap-1 text-[14px] font-semibold text-ink min-w-0"><span className="truncate">{e.name}</span>{ticksFor(e).id && <VerifiedTick kind="id" />}{e.isMe && <span className="ml-0.5 text-[11px] font-bold text-pine-700">You</span>}</span>
         <span className="block text-[11px] text-gray-500 truncate">{division(e.divisionId)}</span>
       </span>
-      <span className="text-[13px] font-semibold text-gray-600">{hi(e.handicapIndex)}</span>
+      <span className="flex items-center gap-1 text-[13px] font-semibold text-gray-600">{hi(e.handicapIndex)}{ticksFor(e).handicap && <VerifiedTick kind="handicap" size={13} />}</span>
     </li>
   )
   if (!isRegistered) {
@@ -243,7 +245,7 @@ export default function TournamentDetails({ tournamentId, push, pop, showToast, 
         <div className="relative -mt-8 bg-white rounded-t-[32px] px-5 pt-6 pb-8">
           <p className="text-[12px] font-bold text-pine-500 font-display">{t.category}</p>
           <h1 className="font-display font-extrabold text-ink text-[26px] leading-[1.15] tracking-tight mt-1">{t.name}</h1>
-          <button onClick={() => push('course-details', { id: t.courseId })} className="flex items-center gap-1.5 mt-2.5 text-left active:opacity-60">
+          <button onClick={() => push('course-details', { id: t.courseId, tournamentId: t.id })} className="flex items-center gap-1.5 mt-2.5 text-left active:opacity-60">
             <IconPin />
             <span className="text-[13px] text-gray-500">{t.venue} · {t.location}</span>
             <span className="text-[12px] font-bold font-display text-pine-600 underline underline-offset-4 ml-1 flex-shrink-0">Course</span>
@@ -395,13 +397,15 @@ export default function TournamentDetails({ tournamentId, push, pop, showToast, 
               </dl>
             </Section>
           )}
+
+          <MoreTournaments excludeId={t.id} push={push} showToast={showToast} />
         </div>
       </div>
 
       {/* Action bar */}
       <div className="flex-shrink-0 bg-white px-5 pt-3 pb-3 border-t border-black/[0.05]">
         <div className="flex gap-2.5">
-          <Button variant="secondary" onClick={() => push(isLive && isRegistered ? 'leaderboard' : 'course-details', { id: isLive && isRegistered ? t.id : t.courseId })} className="flex-shrink-0">
+          <Button variant="secondary" onClick={() => isLive && isRegistered ? push('leaderboard', { id: t.id }) : push('course-details', { id: t.courseId, tournamentId: t.id })} className="flex-shrink-0">
             {isLive && isRegistered ? 'Leaderboard' : <><IconCourse /><span>Course</span></>}
           </Button>
           {primaryAction}

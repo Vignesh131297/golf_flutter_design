@@ -13,8 +13,11 @@ export type ScreenName =
   | 'pace'
   | 'issues'
   | 'cards'
+  | 'results'
   | 'tee-sheet'
   | 'today'
+  | 'official-today'
+  | 'course-rules'
   | 'staff-profile'
   | 'web-only'
 
@@ -95,8 +98,16 @@ export interface Tournament {
   resultsPublished?: boolean
   /** Organisation that runs it (matches the web prototype's organisations) */
   organizerId?: string
+  /** Four-Ball and scramble teams */
+  team?: TeamSettings
   /** Target round time and how far behind a group can fall before it's flagged */
   pace?: { targetMinutes: number; flagMinutes: number }
+}
+
+export interface TeamSettings {
+  size: 2 | 3 | 4
+  /** Golfers register with partners, or the organiser builds the teams */
+  formation: 'players' | 'organizer'
 }
 
 export interface TournamentRound {
@@ -167,6 +178,8 @@ export interface Prize {
   /** Division id, or empty for overall */
   divisionId?: string
   value: string
+  /** Hole for longest drive / closest to the pin */
+  hole?: number
 }
 
 export interface TeeSheetSettings {
@@ -307,6 +320,10 @@ export interface GolferProfile {
   gloveSize?: string
   /** Which hand the glove is for */
   gloveHand?: 'LH' | 'RH'
+  /** Optional photo ID (driver's licence or passport) — earns the verified tick (client, 21 Oct call) */
+  idCheck?: { document: string; fileName: string; status: 'checking' | 'verified'; at: string }
+  /** Handicap Index confirmed with the issuing body (Golf Canada) — the tick that matters most */
+  handicapVerified?: boolean
   /** Profile picture (a data URL in the prototype; an uploaded image URL in the real app) */
   photoUrl?: string
   membership: 'Member' | 'Guest'
@@ -360,6 +377,7 @@ export interface NewAccount {
   shirtSize?: string
   gloveSize?: string
   gloveHand?: 'LH' | 'RH'
+  idCheck?: GolferProfile['idCheck']
   marketingOptIn?: boolean
   emailVerified: boolean
 }

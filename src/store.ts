@@ -12,7 +12,7 @@ import { MOCK_COURSES, MOCK_TOURNAMENTS } from './data'
  * This file is shared verbatim between the mobile and web projects.
  */
 
-const STORAGE_KEY = 'gtp-admin-data-v1'
+const STORAGE_KEY = 'gtp-admin-data-v2'
 
 // Pristine copies for "Reset demo data"
 const DEFAULT_TOURNAMENTS: Tournament[] = structuredClone(MOCK_TOURNAMENTS)

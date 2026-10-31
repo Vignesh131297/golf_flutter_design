@@ -5,11 +5,13 @@ import SignIn from './screens/SignIn'
 import SignUp, { type AccountBasics } from './screens/SignUp'
 import ProfileSetup from './screens/ProfileSetup'
 import VerifyEmail from './screens/VerifyEmail'
-import { MOCK_PROFILE, applyNewAccount } from './data'
-import { resolveAccount, organiserTournament, type Account } from './accounts'
-import { assignmentsFor, type Actor } from './ops'
+import { MOCK_PROFILE } from './data'
+import { registerGolfer, rememberGolfer, restoreGolfer, signOutGolfer } from './golfers'
+import { resolveAccount, organiserTournament, type Account, golferOrganiserRole } from './accounts'
+import { assignmentsFor, sessionEnded, useOpsVersion, type Actor } from './ops'
 import {
-  CardsScreen, IssuesScreen, MeScreen, PaceScreen, PlayScreen, TeeSheetScreen, TodayScreen, WebOnlyScreen, type RoleContext,
+  CardsScreen, CourseRulesScreen, IssuesScreen, MeScreen, OfficialTodayScreen, PaceScreen, PlayScreen, ResultsScreen, TeeSheetScreen, TodayScreen, WebOnlyScreen,
+  type RoleContext,
 } from './screens/Roles'
 import Home from './screens/Home'
 import TournamentList from './screens/TournamentList'
@@ -87,6 +89,7 @@ const IconPace: NavIcon = () => <NavSvg><circle cx="12" cy="13" r="8" /><path d=
 const IconIssues: NavIcon = () => <NavSvg><path d="M12 3l9.5 17h-19L12 3z" /><path d="M12 10v4M12 17v.5" /></NavSvg>
 const IconCards: NavIcon = () => <NavSvg><rect x="3.5" y="4" width="17" height="16" rx="2.5" /><path d="M3.5 9h17M9 9v11M14.5 9v11" /></NavSvg>
 const IconSheet: NavIcon = () => <NavSvg><path d="M7 3.5h10M5 7.5h14M5 7.5v13h14v-13M9 12h6M9 16h4" /></NavSvg>
+const IconResults: NavIcon = () => <NavSvg><path d="M8 4h8v5a4 4 0 01-8 0V4zM8 6H5v1a3 3 0 003 3M16 6h3v1a3 3 0 01-3 3M12 13v4M8.5 20.5h7M10 17h4" /></NavSvg>
 const IconToday: NavIcon = () => <NavSvg><rect x="3.5" y="5" width="17" height="15.5" rx="2.5" /><path d="M3.5 10h17M8 3v4M16 3v4M8 14h3" /></NavSvg>
 
 export interface TabDef { label: string; screen: ScreenName; Icon: NavIcon; match: ScreenName[] }
@@ -105,15 +108,17 @@ const MARSHAL_TABS: TabDef[] = [
   ME_TAB,
 ]
 const OFFICIAL_TABS: TabDef[] = [
+  { label: 'Today', screen: 'official-today', Icon: IconToday, match: ['official-today', 'tee-sheet', 'course-rules', 'pace'] },
   { label: 'Cards', screen: 'cards', Icon: IconCards, match: ['cards'] },
   { label: 'Disputes', screen: 'issues', Icon: IconIssues, match: ['issues'] },
-  { label: 'Pace', screen: 'pace', Icon: IconPace, match: ['pace'] },
+  { label: 'Results', screen: 'results', Icon: IconResults, match: ['results'] },
   ME_TAB,
 ]
 const ORGANISER_TABS: TabDef[] = [
   { label: 'Today', screen: 'today', Icon: IconToday, match: ['today', 'pace'] },
   { label: 'Cards', screen: 'cards', Icon: IconCards, match: ['cards'] },
   { label: 'Disputes', screen: 'issues', Icon: IconIssues, match: ['issues'] },
+  { label: 'Results', screen: 'results', Icon: IconResults, match: ['results'] },
   ME_TAB,
 ]
 
@@ -365,14 +370,47 @@ function SessionExpiredModal({ onDismiss }: { onDismiss: () => void }) {
   )
 }
 
+/* ───────────────── Session ───────────────── */
+
+/** This tab's sign-in, so a reload keeps it. A new tab starts signed out, so two roles can run side by side. */
+const SESSION_KEY = 'gtp-session-mobile'
+
+interface SavedSession { account: Account; staffTid: string | null; since: string | null }
+
+function restoreSession(): SavedSession | null {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(SESSION_KEY) ?? 'null') as SavedSession | null
+    if (saved) restoreGolfer()
+    return saved
+  } catch { return null }
+}
+
+function saveSession(session: SavedSession | null) {
+  try {
+    if (session) sessionStorage.setItem(SESSION_KEY, JSON.stringify(session))
+    else sessionStorage.removeItem(SESSION_KEY)
+  } catch { /* private mode: sign-in lasts until reload */ }
+}
+
+/** Each role's first tab */
+function firstScreen(acc: Account, tid: string | null): ScreenName {
+  if (acc.kind === 'admin') return 'web-only'
+  if (acc.kind === 'organiser') return 'today'
+  if (acc.kind === 'golfer') return 'home'
+  const list = assignmentsFor(acc.email).filter(a => a.window !== 'ended')
+  const a = list.find(x => x.tournament.id === tid) ?? list.find(x => x.window === 'live') ?? list[0]
+  return !a ? 'staff-profile' : a.window === 'upcoming' ? 'tee-sheet' : a.role === 'official' ? 'official-today' : 'pace'
+}
+
 /* ───────────────── App Root ───────────────── */
 
 export default function App() {
   // One sign-in for every role: the account decides the tabs (golfer, marshal, official, organiser; admins use the web)
-  const [account, setAccount]                 = useState<Account | null>(null)
-  const [staffTid, setStaffTid]               = useState<string | null>(null)
+  const [restored]                            = useState(restoreSession)
+  const [account, setAccount]                 = useState<Account | null>(restored?.account ?? null)
+  const [staffTid, setStaffTid]               = useState<string | null>(restored?.staffTid ?? null)
   const [activeTab, setActiveTab]             = useState(0)
-  const [navStack, setNavStack]               = useState<NavEntry[]>([{ screen: 'home', direction: 'push' }])
+  const [navStack, setNavStack]               = useState<NavEntry[]>([{ screen: restored ? firstScreen(restored.account, restored.staffTid) : 'home', direction: 'push' }])
   const [toast, setToast]                     = useState<ToastData | null>(null)
   const [dialog, setDialog]                   = useState<DialogData | null>(null)
   const [sessionExpired, setSessionExpired]   = useState(false)
@@ -424,25 +462,51 @@ export default function App() {
 
   const showDialog = useCallback((d: DialogData) => setDialog(d), [])
 
+  /* A session ends at once if the password is reset, or the organiser takes a marshal or official off */
+  const [staffSince, setStaffSince]           = useState<string | null>(restored?.since ?? null)
+  const [signedOutReason, setSignedOutReason] = useState<string | null>(null)
+  const staffEmail = !account ? null : account.kind === 'golfer' ? MOCK_PROFILE.email : account.email
+  const opsVersion = useOpsVersion()
+  useEffect(() => {
+    if (!staffEmail || !staffSince) return
+    const check = () => {
+      const why = sessionEnded(staffEmail, staffSince)
+      if (!why) return
+      signOutGolfer()
+      setAccount(null)
+      setStaffSince(null)
+      setNavStack([{ screen: 'home', direction: 'push' }])
+      setSignedOutReason(why)
+    }
+    check()
+    const timer = setInterval(check, 5000)
+    return () => clearInterval(timer)
+  }, [staffEmail, staffSince, opsVersion])
+
+  // A reload keeps this tab signed in, and keeps any profile edits
+  useEffect(() => {
+    saveSession(account ? { account, staffTid, since: staffSince } : null)
+  }, [account, staffTid, staffSince])
+
+  useEffect(() => {
+    window.addEventListener('pagehide', rememberGolfer)
+    return () => window.removeEventListener('pagehide', rememberGolfer)
+  }, [])
+
   /** Lands each role on its first tab */
   const enter = useCallback((acc: Account, tid: string | null = null) => {
     setAccount(acc)
     setStaffTid(tid)
+    setStaffSince(new Date().toISOString())
+    setSignedOutReason(null)
     setActiveTab(0)
-    let first: ScreenName = 'home'
-    if (acc.kind === 'admin') first = 'web-only'
-    else if (acc.kind === 'organiser') first = 'today'
-    else if (acc.kind === 'staff') {
-      const list = assignmentsFor(acc.email).filter(a => a.window !== 'ended')
-      const a = list.find(x => x.tournament.id === tid) ?? list.find(x => x.window === 'live') ?? list[0]
-      first = !a ? 'staff-profile' : a.window === 'upcoming' ? 'tee-sheet' : a.role === 'official' ? 'cards' : 'pace'
-    }
-    setNavStack([{ screen: first, direction: 'push' }])
+    setNavStack([{ screen: firstScreen(acc, tid), direction: 'push' }])
   }, [])
 
-  const handleSignIn = useCallback((email: string, password: string) => {
+  const handleSignIn = useCallback((email: string, password: string): boolean | string => {
     const acc = resolveAccount(email, password)
     if (acc === 'invalid') return false
+    if ('message' in acc) return acc.message
     enter(acc)
     showToast(`Welcome back, ${acc.kind === 'golfer' ? MOCK_PROFILE.firstName : acc.name.split(' ')[0]}`, 'success')
     return true
@@ -460,12 +524,12 @@ export default function App() {
   }, [])
 
   const handleAccountCreated = useCallback((created: NewAccount) => {
-    applyNewAccount(created)
+    registerGolfer(basics?.password ?? '', created)
     setBasics(null)
     setAuthScreen('signin')
     enter({ kind: 'golfer' })
     showToast(`Welcome, ${MOCK_PROFILE.firstName}! We've emailed a confirmation to ${MOCK_PROFILE.email}`, 'success')
-  }, [showToast, enter])
+  }, [showToast, enter, basics])
 
   const handleSignOut = useCallback(() => {
     showDialog({
@@ -475,6 +539,7 @@ export default function App() {
       cancelLabel: 'Stay',
       destructive: true,
       onConfirm: () => {
+        signOutGolfer()
         setAccount(null)
         setNavStack([{ screen: 'home', direction: 'push' }])
         setActiveTab(0)
@@ -485,6 +550,7 @@ export default function App() {
 
   const handleSessionExpired = useCallback(() => {
     setSessionExpired(false)
+    signOutGolfer()
     setAccount(null)
     setNavStack([{ screen: 'home', direction: 'push' }])
   }, [])
@@ -495,6 +561,14 @@ export default function App() {
     showToast('Switched to your tournament duty', 'info')
   }, [enter, showToast, golferName])
 
+  /** The golfer who also organises opens the organiser view, and back */
+  const switchToOrganiser = useCallback(() => {
+    const r = golferOrganiserRole()
+    if (!r) return
+    enter({ kind: 'organiser', email: MOCK_PROFILE.email.toLowerCase(), name: golferName, orgName: r.orgName, organizerId: r.organizerId })
+    showToast(`Switched to ${r.orgName}`, 'info')
+  }, [enter, showToast, golferName])
+
   const roleCtx: RoleContext = {
     account: account ?? { kind: 'golfer' },
     t: roleTournament,
@@ -502,7 +576,7 @@ export default function App() {
     actor,
     selectTournament: tid => { if (account?.kind === 'staff') enter(account, tid) },
     onSignOut: handleSignOut,
-    switchToGolf: account?.kind === 'staff' && account.email === MOCK_PROFILE.email.toLowerCase()
+    switchToGolf: (account?.kind === 'staff' || account?.kind === 'organiser') && account.email === MOCK_PROFILE.email.toLowerCase()
       ? () => { enter({ kind: 'golfer' }); showToast('Back to your golf', 'info') } : undefined,
   }
 
@@ -529,7 +603,7 @@ export default function App() {
         ) : authScreen === 'setup' && basics ? (
           <ProfileSetup basics={basics} emailVerified={emailVerified} onBack={() => goAuth('verify', 'pop')} onComplete={handleAccountCreated} />
         ) : (
-          <SignIn onSignIn={handleSignIn} onSignUp={() => goAuth('signup', 'push')} showToast={showToast} />
+          <SignIn onSignIn={handleSignIn} onSignUp={() => goAuth('signup', 'push')} showToast={showToast} signedOutReason={signedOutReason} />
         )
       return (
         <div key={authScreen} className={`h-full ${authDirection === 'pop' ? 'screen-pop' : 'screen-push'}`}>
@@ -551,7 +625,7 @@ export default function App() {
         case 'tournament-details':
           return <TournamentDetails {...sharedProps} tournamentId={currentRoute.params?.id ?? 't1'} />
         case 'course-details':
-          return <CourseDetails {...sharedProps} courseId={currentRoute.params?.id ?? 'c1'} />
+          return <CourseDetails {...sharedProps} courseId={currentRoute.params?.id ?? 'c1'} tournamentId={currentRoute.params?.tournamentId} />
         case 'leaderboard':
           return <Leaderboard {...sharedProps} tournamentId={currentRoute.params?.id ?? 't8'} />
         case 'live-play':
@@ -559,7 +633,7 @@ export default function App() {
         case 'play':
           return <PlayScreen {...roleProps} />
         case 'profile':
-          return <Profile {...sharedProps} onSignOut={handleSignOut} onSwitchRole={switchToStaff} />
+          return <Profile {...sharedProps} onSignOut={handleSignOut} onSwitchRole={switchToStaff} onSwitchToOrganiser={switchToOrganiser} />
         case 'edit-profile':
           return <EditProfile {...sharedProps} />
         case 'pace':
@@ -568,10 +642,16 @@ export default function App() {
           return <IssuesScreen {...roleProps} />
         case 'cards':
           return <CardsScreen {...roleProps} />
+        case 'results':
+          return <ResultsScreen {...roleProps} />
         case 'tee-sheet':
           return <TeeSheetScreen {...roleProps} />
         case 'today':
           return <TodayScreen {...roleProps} />
+        case 'official-today':
+          return <OfficialTodayScreen {...roleProps} />
+        case 'course-rules':
+          return <CourseRulesScreen {...roleProps} />
         case 'staff-profile':
           return <MeScreen {...roleProps} />
         case 'web-only':

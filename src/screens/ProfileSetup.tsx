@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { IdentityUpload, settledId, type IdCheck } from '../verification'
 import type { NewAccount } from '../types'
 import { Button, Input, SelectField, ChoiceChips, PhoneInput, RoundButton, IconBack, fieldClass } from '../components'
 import type { AccountBasics } from './SignUp'
@@ -68,6 +69,7 @@ export default function ProfileSetup({ basics, emailVerified, onBack, onComplete
   const [errors, setErrors] = useState<Errors>({})
   const [saving, setSaving] = useState(false)
   const [d, setD]           = useState<GolferDraft>(emptyGolferDraft)
+  const [idCheck, setIdCheck] = useState<IdCheck | undefined>()
 
   const set = <K extends keyof GolferDraft>(k: K, v: GolferDraft[K]) => {
     setD(cur => ({ ...cur, [k]: v }))
@@ -83,7 +85,7 @@ export default function ProfileSetup({ basics, emailVerified, onBack, onComplete
     if (Object.values(errs).some(Boolean)) return
     if (!isLast) { setStep(step + 1); return }
     setSaving(true)
-    setTimeout(() => onComplete(toNewAccount(basics, d, emailVerified)), 1200)
+    setTimeout(() => onComplete({ ...toNewAccount(basics, d, emailVerified), idCheck: settledId(idCheck) }), 1200)
   }
 
   function back() {
@@ -128,13 +130,13 @@ export default function ProfileSetup({ basics, emailVerified, onBack, onComplete
                     hint="Course handicaps use the men's or women's tee ratings" />
                 )}
               </FormCard>
-              <FormCard title="Address" hint="Optional, except your country">
+              <FormCard title="Address" hint="Postal code and country are required; the rest is optional">
                 <Input label="Street address" placeholder="Optional" value={d.street} onChange={e => set('street', e.target.value)} autoComplete="street-address" />
                 <div className="grid grid-cols-2 gap-3">
                   <Input label="City" value={d.city} onChange={e => set('city', e.target.value)} autoComplete="address-level2" />
                   <Input label="Province / state" value={d.region} onChange={e => set('region', e.target.value)} autoComplete="address-level1" />
                 </div>
-                <Input label="Postal / ZIP code" value={d.postalCode} onChange={e => set('postalCode', e.target.value.toUpperCase())} error={errors.postalCode} autoComplete="postal-code" />
+                <Input label="Postal / ZIP code *" value={d.postalCode} onChange={e => set('postalCode', e.target.value.toUpperCase())} error={errors.postalCode} autoComplete="postal-code" />
                 <SelectField label="Country *" value={d.country} onChange={v => { set('country', v); setErrors(x => ({ ...x, postalCode: undefined })) }} options={COUNTRIES} error={errors.country} />
               </FormCard>
               <FormCard title="Emergency contact">
@@ -191,6 +193,9 @@ export default function ProfileSetup({ basics, emailVerified, onBack, onComplete
                 <ChoiceChips label="Glove size" options={GLOVE_SIZES} value={d.glove} onChange={v => set('glove', d.glove === v ? '' : v as string)} />
                 <ChoiceChips label="Glove hand" options={GLOVE_HANDS} value={d.gloveHand} onChange={v => set('gloveHand', d.gloveHand === v ? '' : v as GolferDraft['gloveHand'])}
                   hint="Right-handed golfers usually wear a left-hand glove" />
+              </FormCard>
+              <FormCard title="Identity" hint="Optional · get the verified tick">
+                <IdentityUpload value={idCheck} onChange={setIdCheck} />
               </FormCard>
               <FormCard title="Catering" hint="Optional">
                 <ChoiceChips label="Dietary requirements" options={DIETARY} value={d.dietary}

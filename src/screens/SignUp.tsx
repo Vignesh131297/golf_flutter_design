@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Button, Input, PasswordInput, PhoneInput, RoundButton, IconBack } from '../components'
 import { isBlockedPassword, nameError, phoneError, EMAIL_RE } from '../account-rules'
+import { accountExists } from '../ops'
 
 export interface AccountBasics {
   fullName: string
@@ -8,6 +9,7 @@ export interface AccountBasics {
   lastName?: string
   email: string
   phone: string
+  password: string
   marketingOptIn?: boolean
 }
 
@@ -48,6 +50,7 @@ export default function SignUp({ onBack, onContinue }: SignUpProps) {
     const le = nameError(lastName, 'last'); if (le) e.lastName = le
     if (!email.trim()) e.email = 'Email is required'
     else if (!EMAIL_RE.test(email.trim())) e.email = 'Enter a valid email address'
+    else if (accountExists(email)) e.email = 'An account with this email already exists. Sign in instead.'
     const pe = phoneError(phone); if (pe) e.phone = pe
     if (password.length < 8) e.password = 'Use at least 8 characters'
     else if (isBlockedPassword(password)) e.password = 'This password is too common — choose another'
@@ -72,7 +75,7 @@ export default function SignUp({ onBack, onContinue }: SignUpProps) {
       setLoading(false)
       onContinue({
         fullName: `${firstName.trim()} ${lastName.trim()}`, firstName: firstName.trim(), lastName: lastName.trim(),
-        email: email.trim(), phone: phone.trim(), marketingOptIn: marketing,
+        email: email.trim(), phone: phone.trim(), password, marketingOptIn: marketing,
       })
     }, 1200)
   }

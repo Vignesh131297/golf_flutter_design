@@ -1,15 +1,18 @@
 import { useState, type FormEvent } from 'react'
 import type { ToastData } from '../types'
 import { Button, Input, IconEye, fieldClass } from '../components'
+import { ForgotPasswordSheet, SetUpLoginSheet } from '../ops-ui'
 
 interface SignInProps {
-  /** false = known account, wrong password */
-  onSignIn: (email: string, password: string) => boolean
+  /** false = known account, wrong password; a string = why a marshal or official can't sign in yet */
+  onSignIn: (email: string, password: string) => boolean | string
   onSignUp: () => void
   showToast: (message: string, type?: ToastData['type']) => void
+  /** Set when the organiser ended this person's session (taken off a tournament, password reset) */
+  signedOutReason?: string | null
 }
 
-type SignInState = 'idle' | 'loading' | 'error' | 'server-error'
+type SignInState = 'idle' | 'loading' | 'error' | 'server-error' | 'account'
 
 /** Prototype only: one tap fills a demo login for each role */
 const DEMO_ROLES = [
@@ -20,7 +23,9 @@ const DEMO_ROLES = [
   { role: 'Admin', email: 'admin@gmail.com', password: 'admin' },
 ]
 
-export default function SignIn({ onSignIn, onSignUp, showToast }: SignInProps) {
+export default function SignIn({ onSignIn, onSignUp, showToast, signedOutReason }: SignInProps) {
+  const [sheet, setSheet]           = useState<'setup' | 'forgot' | null>(null)
+  const [accountMsg, setAccountMsg] = useState('')
   const [email, setEmail]           = useState('')
   const [password, setPassword]     = useState('')
   const [showPw, setShowPw]         = useState(false)
@@ -29,14 +34,13 @@ export default function SignIn({ onSignIn, onSignUp, showToast }: SignInProps) {
   const [state, setState]           = useState<SignInState>('idle')
 
   function validateEmail(v: string) {
-    if (!v) return 'Email is required'
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return 'Enter a valid email address'
+    if (!v.trim()) return 'Email is required'
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim())) return 'Enter a valid email address'
     return ''
   }
 
   function validatePw(v: string) {
     if (!v) return 'Password is required'
-    if (v.length < 4) return 'Password must be at least 4 characters'
     return ''
   }
 
@@ -60,12 +64,10 @@ export default function SignIn({ onSignIn, onSignUp, showToast }: SignInProps) {
         setState('server-error')
         return
       }
-      if (password === 'wrongpass') {
-        setState('error')
-        return
-      }
       // One sign-in for every role: the account decides which tabs open
-      if (!onSignIn(email, password)) return setState('error')
+      const result = onSignIn(email, password)
+      if (typeof result === 'string') { setAccountMsg(result); return setState('account') }
+      if (!result) return setState('error')
       setState('idle')
     }, 1600)
   }
@@ -99,6 +101,20 @@ export default function SignIn({ onSignIn, onSignUp, showToast }: SignInProps) {
           <h2 className="font-display font-extrabold text-ink text-[24px] tracking-tight">Welcome back</h2>
           <p className="text-gray-500 text-sm mt-1">Sign in to your account to continue</p>
         </div>
+
+        {/* Signed out by the organiser, or a marshal / official who can't get in yet */}
+        {signedOutReason && state === 'idle' && (
+          <div role="alert" className="mb-5 flex items-start gap-3 bg-amber-50 rounded-2xl px-4 py-3.5 fade-in">
+            <span className="w-2 h-2 rounded-full bg-amber-500 mt-1.5 flex-shrink-0" />
+            <p className="text-sm text-amber-800"><span className="font-semibold font-display block">You’ve been signed out</span>{signedOutReason}</p>
+          </div>
+        )}
+        {state === 'account' && (
+          <div role="alert" className="mb-5 flex items-start gap-3 bg-amber-50 rounded-2xl px-4 py-3.5 fade-in">
+            <span className="w-2 h-2 rounded-full bg-amber-500 mt-1.5 flex-shrink-0" />
+            <p className="text-sm font-semibold text-amber-800 font-display">{accountMsg}</p>
+          </div>
+        )}
 
         {/* Server error banner */}
         {serverError && (
@@ -178,7 +194,7 @@ export default function SignIn({ onSignIn, onSignUp, showToast }: SignInProps) {
           <div className="flex justify-end -mt-1">
             <button
               type="button"
-              onClick={() => showToast('Password reset email sent', 'info')}
+              onClick={() => setSheet('forgot')}
               className="text-ink text-[13px] font-semibold font-display underline underline-offset-4 decoration-lime-500 decoration-2 active:opacity-60 transition-opacity"
             >
               Forgot password?
@@ -208,7 +224,15 @@ export default function SignIn({ onSignIn, onSignUp, showToast }: SignInProps) {
           </div>
         </div>
 
-        <p className="text-center text-sm text-gray-500 mt-6">
+        <p className="text-center text-sm text-gray-500 mt-5">
+          Marshal or official?{' '}
+          <button type="button" onClick={() => setSheet('setup')}
+            className="text-ink font-semibold font-display underline underline-offset-4 decoration-lime-500 decoration-2 active:opacity-60">
+            Set up your login
+          </button>
+        </p>
+
+        <p className="text-center text-sm text-gray-500 mt-3">
           Don't have an account?{' '}
           <button
             type="button"
@@ -229,6 +253,8 @@ export default function SignIn({ onSignIn, onSignUp, showToast }: SignInProps) {
           <span className="text-ink font-semibold">Privacy Policy</span>
         </p>
       </div>
+      {sheet === 'setup' && <SetUpLoginSheet onClose={() => setSheet(null)} showToast={showToast} />}
+      {sheet === 'forgot' && <ForgotPasswordSheet initialEmail={email} onClose={() => setSheet(null)} showToast={showToast} />}
     </div>
   )
 }

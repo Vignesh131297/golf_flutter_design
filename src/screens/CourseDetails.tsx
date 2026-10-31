@@ -2,10 +2,11 @@ import { useState, useEffect } from 'react'
 import type { Course, SharedNavProps } from '../types'
 import {
   Button, InfoRow, SkeletonRow, ErrorState, RoundButton,
-  IconBack, IconPin, TournamentCard, SectionHeader,
+  IconBack, IconPin,
 } from '../components'
-import { getCourse, getTournamentsByCourse } from '../data'
-import { dist, generateHoleMap, teeSwatch, teeTotal } from '../golf'
+import { getCourse, getTournament } from '../data'
+import MoreTournaments from './MoreTournaments'
+import { dist, generateHoleMap, teeSwatch, teeTotal, formatClock } from '../golf'
 import { HoleMapView } from '../hole-map'
 
 function TeesList({ course }: { course: Course }) {
@@ -84,14 +85,17 @@ function HoleGuide({ course }: { course: Course }) {
 
 interface CourseDetailsProps extends SharedNavProps {
   courseId: string
+  /** The tournament the golfer came from — the only one this page mentions (client, 21 Oct) */
+  tournamentId?: string
 }
 
-export default function CourseDetails({ courseId, push, pop, showToast }: CourseDetailsProps) {
+export default function CourseDetails({ courseId, tournamentId, push, pop, showToast }: CourseDetailsProps) {
   const [loading, setLoading]  = useState(true)
   const [nine, setNine]        = useState<'front' | 'back' | 'all'>('front')
 
   const course      = getCourse(courseId)
-  const tournaments = getTournamentsByCourse(courseId)
+  const ours        = tournamentId ? getTournament(tournamentId) : undefined
+  const event       = ours && ours.courseId === courseId && ours.status !== 'draft' ? ours : undefined
 
   useEffect(() => {
     const id = setTimeout(() => setLoading(false), 750)
@@ -311,43 +315,24 @@ export default function CourseDetails({ courseId, push, pop, showToast }: Course
             </div>
           )}
 
-          {/* Related tournaments */}
-          {tournaments.length > 0 && (
-            <div>
-              <SectionHeader title="Tournaments here" />
-              <div className="space-y-3">
-                {tournaments.slice(0, 2).map(t => (
-                  <TournamentCard
-                    key={t.id}
-                    tournament={t}
-                    onPress={() => push('tournament-details', { id: t.id })}
-                    compact
-                  />
-                ))}
-              </div>
+          {event && (
+            <div className="bg-ink rounded-3xl p-4 text-white">
+              <p className="text-lime-400 text-[11px] font-bold font-display uppercase tracking-wider">Your tournament here</p>
+              <p className="font-display font-bold text-[16px] mt-1">{event.name}</p>
+              <p className="text-white/70 text-[13px] mt-0.5">{event.dateRange}{event.teeSheet ? ` · ${event.teeSheet.startType === 'shotgun' ? 'Shotgun' : 'First tee'} ${formatClock(event.teeSheet.firstTeeTime)}` : ''}</p>
             </div>
           )}
+
+          <MoreTournaments excludeId={event?.id} excludeCourseId={courseId} push={push} showToast={showToast} />
         </div>
       </div>
 
       {/* Footer action — in normal flow */}
-      <div className="flex-shrink-0 bg-white px-5 pt-3 pb-3 border-t border-black/[0.05]">
-        <Button
-          variant="primary"
-          fullWidth
-          onClick={() => {
-            if (tournaments.length > 0) {
-              push('tournament-details', { id: tournaments[0].id })
-            } else {
-              showToast('No active tournaments at this course', 'info')
-            }
-          }}
-        >
-          {tournaments.some(t => t.registrationStatus === 'open')
-            ? 'View open tournament'
-            : 'View tournaments'}
-        </Button>
-      </div>
+      {event && (
+        <div className="flex-shrink-0 bg-white px-5 pt-3 pb-3 border-t border-black/[0.05]">
+          <Button variant="primary" fullWidth onClick={pop}>Back to {event.name}</Button>
+        </div>
+      )}
     </div>
   )
 }

@@ -3,14 +3,14 @@ import type { Point, SharedNavProps } from '../types'
 import { Button, ErrorState, RoundButton, IconBack } from '../components'
 import { getTournament, getCourse } from '../data'
 import {
-  addShot, cardFor, cardState, leaderboard, myEntry, roundHoles, setCardState, setStrokes, shotsFor, undoShot, useLiveVersion,
+  addShot, cardFor, cardState, entriesFor, leaderboard, myEntry, roundHoles, setCardState, setStrokes, shotsFor, undoShot, useLiveVersion,
 } from '../live'
-import { dist, generateHoleMap, playingHandicap, scoreLabel, strokesOnHole, toPar } from '../golf'
+import { dist, generateHoleMap, playingHandicap, scoreLabel, strokesOnHole, toPar, formatClock } from '../golf'
 import { HoleMapView, greenDistances, hazardsAhead } from '../hole-map'
 import { ScoreCell } from './Leaderboard'
-import { teeSetIdFor } from '../live'
-import { incidentsFor, logIncident, markedBy, markerCardFor, markerOf, mismatches, setMarkerStrokes, useOpsVersion } from '../ops'
-import { IncidentSheet, Sheet } from '../ops-ui'
+import { ROUND_STATUS_LABEL, groupBehind, roundStatus, suspensionFor, teeSetIdFor } from '../live'
+import { currentRound, incidentsFor, logIncident, markedBy, markerCardFor, markerMissing, markerOf, mismatches, roundNumbers, rulingsFor, setMarkerStrokes, useOpsVersion } from '../ops'
+import { IncidentSheet, MyRoundStatus, MyRulingsSheet, Sheet } from '../ops-ui'
 
 interface LivePlayProps extends SharedNavProps {
   tournamentId: string
@@ -29,7 +29,7 @@ export default function LivePlay({ tournamentId, pop, push, showToast, showDialo
   const t = getTournament(tournamentId)
   const course = t ? getCourse(t.courseId) : undefined
   const me = t ? myEntry(t.id) : undefined
-  const round = 1
+  const round = t ? currentRound(t) : 1
   const holes = t && course ? roundHoles(t, course, round) : []
   const card = t && me ? cardFor(t, me.id, round) : []
   const firstOpen = card.findIndex(s => s === null)
@@ -37,8 +37,12 @@ export default function LivePlay({ tournamentId, pop, push, showToast, showDialo
   const [target, setTarget] = useState<Point | undefined>()
   const [draft, setDraft] = useState<number | null>(null)
   const [showCard, setShowCard] = useState(false)
+  const [showRulings, setShowRulings] = useState(false)
   const [settling, setSettling] = useState(false)
   const [asking, setAsking] = useState(false)
+  // The official signed off the last round while this screen was open: carry on from the new round's first open hole
+  const [seenRound, setSeenRound] = useState(round)
+  if (round !== seenRound) { setSeenRound(round); setIndex(firstOpen < 0 ? 0 : firstOpen) }
 
   if (!t || !course || !me || me.status !== 'registered' || t.status !== 'in-progress') {
     return (
@@ -53,7 +57,10 @@ export default function LivePlay({ tournamentId, pop, push, showToast, showDialo
     )
   }
 
-  const locked = cardState(t.id, me.id, round) !== 'in-progress'
+  // A handed-in card, or an official's WD / NS / DNF / DQ, ends scoring for the round
+  const status = roundStatus(t.id, me.id, round)
+  const locked = cardState(t.id, me.id, round) !== 'in-progress' || status !== 'playing'
+  const rulings = rulingsFor(t.id, me.id)
   const hole = holes[index]
   const map = hole.map ?? generateHoleMap(hole)
   const division = t.divisions?.find(d => d.id === me.divisionId)
@@ -71,15 +78,14 @@ export default function LivePlay({ tournamentId, pop, push, showToast, showDialo
   const strokes = draft ?? saved ?? hole.par
   const row = leaderboard(t, round).find(r => r.entry.id === me.id)
   const blanks = card.filter(s => s === null).length
-  // Partners mark each other's cards; the two must agree before the card goes in
+  // Each player marks the next one in the group; the two cards must agree before the card goes in
   const marker = markerOf(t.id, round, me.id)
-  const markee = markedBy(t.id, round, me.id)[0]
+  const markees = markedBy(t.id, round, me.id).filter(p => roundStatus(t.id, p.id, round) === 'playing')
+  const noMarker = markerMissing(t, round, me.id)
   const myMarked = markerCardFor(t, me.id, round)
   const disputed = new Set(incidentsFor(t.id).filter(i => i.kind === 'score-dispute' && i.status !== 'resolved' && i.entryIds.includes(me.id)).map(i => i.hole))
   const unsettled = mismatches(t, me.id, round).filter(i => !disputed.has(holes[i].hole))
-  const markeeMine = markee ? markerCardFor(t, markee.id, round)[index] : null
-  const markeeTheirs = markee ? cardFor(t, markee.id, round)[index] : null
-  const markeeValue = markeeMine ?? hole.par
+  const behind = groupBehind(t.id, round, me.id)
 
   function goTo(i: number) {
     setIndex(Math.max(0, Math.min(holes.length - 1, i)))
@@ -113,6 +119,25 @@ export default function LivePlay({ tournamentId, pop, push, showToast, showDialo
     showToast('Ball marked from GPS (simulated)', 'info')
   }
 
+  /** Players don't report the group ahead, but they notice the group behind falling back (client, 21 Oct) */
+  function reportGroupBehind() {
+    if (!behind) return
+    const names = entriesFor(t!.id).filter(e => behind.entryIds.includes(e.id)).map(e => e.name)
+    showDialog({
+      title: 'Report the group behind?',
+      message: `The marshal gets a quiet note that the ${formatClock(behind.time)} group (${names.join(', ')}) is falling behind while you're on hole ${hole.hole}. Only the marshal and the committee see it.`,
+      confirmLabel: 'Tell the marshal',
+      onConfirm: () => {
+        logIncident({
+          tournamentId: t!.id, round, kind: 'slow-play', hole: hole.hole, entryIds: behind.entryIds,
+          note: `Player report: we're on hole ${hole.hole} and the group behind (${formatClock(behind.time)} tee time) is well back — ${names.join(', ')}.`,
+          raisedBy: { name: me!.name, role: 'golfer' },
+        })
+        showToast('Sent to the marshal — thanks')
+      },
+    })
+  }
+
   function submitCard() {
     // Golfers submit what they've entered and are responsible for it (client answer T-09)
     showDialog({
@@ -132,13 +157,32 @@ export default function LivePlay({ tournamentId, pop, push, showToast, showDialo
           className="w-9 h-9 rounded-full bg-white shadow-card text-ink font-bold disabled:opacity-30">‹</button>
         <div className="flex-1 text-center min-w-0">
           <p className="font-display font-extrabold text-ink text-[18px] leading-tight">Hole {hole.hole}{hole.name ? ` · ${hole.name}` : ''}</p>
-          <p className="text-[12px] text-gray-500">Par {hole.par} · {holeYards} yds · SI {hole.handicap}{received ? ` · +${received}` : ''}</p>
+          <p className="text-[12px] text-gray-500">{roundNumbers(t).length > 1 ? `R${round} · ` : ''}Par {hole.par} · {holeYards} yds · SI {hole.handicap}{received ? ` · +${received}` : ''}</p>
         </div>
         <button onClick={() => goTo(index + 1)} disabled={index === holes.length - 1} aria-label="Next hole"
           className="w-9 h-9 rounded-full bg-white shadow-card text-ink font-bold disabled:opacity-30">›</button>
         <button onClick={() => push('leaderboard', { id: t.id })} aria-label="Leaderboard"
           className="h-9 px-3 rounded-full bg-ink text-lime-400 text-[12px] font-bold font-display">{row?.position ?? '–'}</button>
       </div>
+
+      <MyRoundStatus t={t} entryId={me.id} round={round} />
+
+      {noMarker && (
+        <div role="status" className="flex-shrink-0 mx-4 mb-2 rounded-2xl bg-amber-50 text-amber-900 px-4 py-2.5">
+          <p className="font-display font-bold text-[13px] leading-snug">{marker?.name} can’t mark your card any more</p>
+          <p className="text-[11px] mt-0.5 leading-snug">Keep playing and scoring. The official gives your card to someone else in your group.</p>
+        </div>
+      )}
+
+      {/* An official stopped play: shown until they resume it */}
+      {suspensionFor(t.id) && (
+        <div role="alert" className="flex-shrink-0 mx-4 mb-2 rounded-2xl bg-rose-600 text-white px-4 py-3">
+          <p className="font-display font-bold text-[15px] leading-snug">Play suspended — {suspensionFor(t.id)!.reason.toLowerCase()}. Mark your ball and stop.</p>
+          <p className="text-[12px] text-white/85 mt-0.5 leading-snug">
+            {suspensionFor(t.id)!.note ? `${suspensionFor(t.id)!.by}: “${suspensionFor(t.id)!.note}”` : 'Wait for the official to resume play. Your scores so far are saved.'}
+          </p>
+        </div>
+      )}
 
       {/* Distances */}
       <div className="flex-shrink-0 mx-4 bg-ink rounded-3xl p-3 grid grid-cols-3 gap-2 text-center">
@@ -158,7 +202,7 @@ export default function LivePlay({ tournamentId, pop, push, showToast, showDialo
       {unsettled.length > 0 && (
         <button onClick={() => setSettling(true)} className="flex-shrink-0 mx-4 mt-2 rounded-2xl bg-rose-50 px-4 py-2.5 text-left flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-rose-500 flex-shrink-0" />
-          <span className="flex-1 text-[12px] text-rose-800"><span className="font-bold">Hole {unsettled.map(i => holes[i].hole).join(', ')}</span> doesn’t match {marker?.name.split(' ')[0] ?? 'your marker'}’s card</span>
+          <span className="flex-1 text-[12px] text-rose-800"><span className="font-bold">Score discrepancy on hole {unsettled.map(i => holes[i].hole).join(', ')}</span> — check with {marker?.name.split(' ')[0] ?? 'your marker'}</span>
           <span className="text-[12px] font-bold text-rose-700">Settle ›</span>
         </button>
       )}
@@ -210,26 +254,40 @@ export default function LivePlay({ tournamentId, pop, push, showToast, showDialo
             Use marked shots ({shots.length} + 1 putt)
           </button>
         )}
-        {markee && (
-          <div className="flex items-center gap-2 mt-3 rounded-2xl bg-canvas px-3 py-2">
-            <span className="flex-1 min-w-0">
-              <span className="block text-[12px] font-bold text-ink truncate">Marking {markee.name.split(' ')[0]}</span>
-              <span className={`block text-[11px] ${markeeMine !== null && markeeTheirs !== null && markeeMine !== markeeTheirs ? 'text-rose-600 font-semibold' : 'text-gray-500'}`}>
-                {markeeMine === null ? 'Enter their score' : markeeTheirs === null ? 'Waiting for theirs' : markeeMine === markeeTheirs ? 'Matches ✓' : `They have ${markeeTheirs}`}
+        {markees.map(p => {
+          const mine = markerCardFor(t, p.id, round)[index]
+          const theirs = cardFor(t, p.id, round)[index]
+          const value = mine ?? hole.par
+          return (
+            <div key={p.id} className="flex items-center gap-2 mt-3 rounded-2xl bg-canvas px-3 py-2">
+              <span className="flex-1 min-w-0">
+                <span className="block text-[12px] font-bold text-ink truncate">Marking {p.name.split(' ')[0]}</span>
+                <span className={`block text-[11px] ${mine !== null && theirs !== null && mine !== theirs ? 'text-rose-600 font-semibold' : 'text-gray-500'}`}>
+                  {mine === null ? 'Enter their score' : theirs === null ? 'Waiting for theirs' : mine === theirs ? 'Matches ✓' : `They have ${theirs}`}
+                </span>
               </span>
-            </span>
-            <button disabled={locked || markeeValue <= 1} onClick={() => setMarkerStrokes(t, markee.id, round, index, markeeValue - 1)} aria-label={`One fewer for ${markee.name}`}
-              className="w-9 h-9 rounded-full bg-white text-ink text-[18px] font-bold disabled:opacity-40">−</button>
-            <span className={`w-6 text-center font-display font-extrabold text-[20px] ${markeeMine === null ? 'text-gray-300' : 'text-ink'}`}>{markeeValue}</span>
-            <button disabled={locked || markeeValue >= 15} onClick={() => setMarkerStrokes(t, markee.id, round, index, markeeMine === null ? markeeValue : markeeValue + 1)} aria-label={`${markeeMine === null ? 'Confirm' : 'One more for'} ${markee.name}`}
-              className="w-9 h-9 rounded-full bg-white text-ink text-[16px] font-bold disabled:opacity-40">{markeeMine === null ? '✓' : '+'}</button>
-          </div>
-        )}
+              <button disabled={locked || value <= 1} onClick={() => setMarkerStrokes(t, p.id, round, index, value - 1)} aria-label={`One fewer for ${p.name}`}
+                className="w-9 h-9 rounded-full bg-white text-ink text-[18px] font-bold disabled:opacity-40">−</button>
+              <span className={`w-6 text-center font-display font-extrabold text-[20px] ${mine === null ? 'text-gray-300' : 'text-ink'}`}>{value}</span>
+              <button disabled={locked || value >= 15} onClick={() => setMarkerStrokes(t, p.id, round, index, mine === null ? value : value + 1)} aria-label={`${mine === null ? 'Confirm' : 'One more for'} ${p.name}`}
+                className="w-9 h-9 rounded-full bg-white text-ink text-[16px] font-bold disabled:opacity-40">{mine === null ? '✓' : '+'}</button>
+            </div>
+          )
+        })}
         <div className="flex gap-2 mt-3">
           <Button variant="secondary" onClick={() => setShowCard(true)} className="flex-shrink-0">Card</Button>
           <Button fullWidth onClick={saveScore} disabled={locked}>
-            {locked ? 'Card submitted' : index === holes.length - 1 ? 'Save last hole' : 'Save & next hole'}
+            {status !== 'playing' ? ROUND_STATUS_LABEL[status] : locked ? 'Card submitted' : index === holes.length - 1 ? 'Save last hole' : 'Save & next hole'}
           </Button>
+        </div>
+        <div className="flex justify-center gap-4 mt-2">
+          {rulings.length > 0 && (
+            <button onClick={() => setShowRulings(true)} className="text-[12px] font-semibold text-pine-600 underline underline-offset-4">
+              Your rulings ({rulings.filter(r => r.incident.status === 'resolved').length}/{rulings.length} decided)
+            </button>
+          )}
+          <button onClick={() => setAsking(true)} className="text-[12px] font-semibold text-pine-600 underline underline-offset-4">Ask for a ruling</button>
+          {behind && <button onClick={reportGroupBehind} className="text-[12px] font-semibold text-pine-600 underline underline-offset-4">Group behind slow?</button>}
         </div>
       </div>
 
@@ -295,6 +353,7 @@ export default function LivePlay({ tournamentId, pop, push, showToast, showDialo
         <IncidentSheet t={t} round={round} actor={{ name: me.name, role: 'golfer' }} onClose={() => setAsking(false)} showToast={showToast}
           preset={{ kind: 'rules', hole: hole.hole, entryIds: [me.id] }} />
       )}
+      {showRulings && <MyRulingsSheet t={t} entryId={me.id} onClose={() => setShowRulings(false)} />}
     </div>
   )
 }

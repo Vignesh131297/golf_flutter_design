@@ -88,13 +88,13 @@ export default function EditProfile({ pop, showToast }: SharedNavProps) {
               )}
             </FormCard>
 
-            <FormCard title="Address" hint="Optional, except your country">
+            <FormCard title="Address" hint="Postal code and country are required; the rest is optional">
               <Input label="Street address" value={d.street} onChange={e => set('street', e.target.value)} autoComplete="street-address" />
               <div className="grid grid-cols-2 gap-3">
                 <Input label="City" value={d.city} onChange={e => set('city', e.target.value)} autoComplete="address-level2" />
                 <Input label="Province / state" value={d.region} onChange={e => set('region', e.target.value)} autoComplete="address-level1" />
               </div>
-              <Input label="Postal / ZIP code" value={d.postalCode} onChange={e => set('postalCode', e.target.value.toUpperCase())} error={errors.postalCode} autoComplete="postal-code" />
+              <Input label="Postal / ZIP code *" value={d.postalCode} onChange={e => set('postalCode', e.target.value.toUpperCase())} error={errors.postalCode} autoComplete="postal-code" />
               <SelectField label="Country *" value={d.country} onChange={v => { set('country', v); setErrors(x => ({ ...x, postalCode: undefined })) }} options={COUNTRIES} error={errors.country} />
             </FormCard>
 

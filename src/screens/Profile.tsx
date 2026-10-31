@@ -3,16 +3,21 @@ import { useState, useEffect } from 'react'
 import type { SharedNavProps } from '../types'
 import {
   Avatar, SkeletonRow, ErrorState,
-  IconEdit, IconSignOut, IconChevronRight,
+  IconEdit, IconSignOut, IconChevronRight, VerifiedTick,
 } from '../components'
 import { MOCK_PROFILE } from '../data'
-import { golferDuties } from '../accounts'
+import { golferDuties, golferOrganiserRole } from '../accounts'
+import { HandicapCheck, IdentityUpload, idStatus } from '../verification'
+import { activeCoupons } from '../rewards'
+import { CouponCard } from '../payments'
 import { STAFF_ROLE_LABEL } from '../ops'
 
 interface ProfileProps extends SharedNavProps {
   onSignOut: () => void
   /** Opens a tournament where this golfer is also a marshal or official */
   onSwitchRole?: (tournamentId: string) => void
+  /** Opens the organiser view for a golfer who also runs tournaments */
+  onSwitchToOrganiser?: () => void
 }
 
 type LoadState = 'loading' | 'loaded' | 'error'
@@ -65,9 +70,11 @@ function ActionRow({ icon, label, sublabel, onClick, variant = 'default' }: {
   )
 }
 
-export default function Profile({ push, showToast, onSignOut, onSwitchRole }: ProfileProps) {
+export default function Profile({ push, showToast, onSignOut, onSwitchRole, onSwitchToOrganiser }: ProfileProps) {
   const [loadState, setLoadState] = useState<LoadState>('loading')
+  const [, refresh] = useState(0)
   const profile = MOCK_PROFILE
+  const organiser = golferOrganiserRole()
 
   useEffect(() => {
     const id = setTimeout(() => setLoadState('loaded'), 900)
@@ -128,7 +135,7 @@ export default function Profile({ push, showToast, onSignOut, onSwitchRole }: Pr
             </button>
           </div>
 
-          <h1 className="relative font-display font-extrabold text-white text-[24px] tracking-tight mt-4">{fullName}</h1>
+          <h1 className="relative font-display font-extrabold text-white text-[24px] tracking-tight mt-4 flex items-center gap-2">{fullName}{idStatus(profile.idCheck) === 'verified' && <VerifiedTick kind="id" size={20} />}</h1>
           <p className="relative text-white/55 text-sm">
             {memberYears > 0 ? `Member for ${memberYears} year${memberYears > 1 ? 's' : ''}` : 'New member'}
             {profile.city ? ` · ${profile.city}` : profile.homeClub ? ` · ${profile.homeClub}` : ''}
@@ -138,7 +145,7 @@ export default function Profile({ push, showToast, onSignOut, onSwitchRole }: Pr
           <div className="relative grid grid-cols-3 gap-2 mt-5">
             <div className="bg-lime-400 rounded-2xl p-3">
               <p className="font-display font-extrabold text-ink text-[20px] leading-none tracking-tight">{handicapText(profile)}</p>
-              <p className="text-pine-800 text-[11px] font-semibold mt-1.5">Handicap</p>
+              <p className="text-pine-800 text-[11px] font-semibold mt-1.5 flex items-center gap-1">Handicap{profile.handicapVerified && <VerifiedTick kind="handicap" size={12} />}</p>
             </div>
             <div className="bg-white/[0.08] rounded-2xl p-3">
               <p className="font-display font-extrabold text-white text-[20px] leading-none tracking-tight">{profile.tournamentsPlayed}</p>
@@ -152,15 +159,46 @@ export default function Profile({ push, showToast, onSignOut, onSwitchRole }: Pr
         </div>
 
         {/* One account, several roles */}
-        {onSwitchRole && golferDuties().length > 0 && (
+        {((onSwitchRole && golferDuties().length > 0) || (onSwitchToOrganiser && organiser)) && (
           <Group title="Your other roles">
-            {golferDuties().map(a => (
+            {onSwitchToOrganiser && organiser && (
+              <ActionRow icon={<span className="text-[16px]">⇄</span>} label={`Organiser · ${organiser.orgName}`}
+                sublabel="Today’s field, cards and disputes" onClick={onSwitchToOrganiser} />
+            )}
+            {onSwitchRole && golferDuties().map(a => (
               <ActionRow key={a.tournament.id} icon={<span className="text-[16px]">⇄</span>}
                 label={`${STAFF_ROLE_LABEL[a.role]} · ${a.tournament.name}`}
                 sublabel={a.window === 'live' ? 'Live now — open the console' : `${a.tournament.dateRange} · tee sheet and contacts`}
                 onClick={() => onSwitchRole(a.tournament.id)} />
             ))}
           </Group>
+        )}
+
+        <div>
+          <h2 className="font-display font-bold text-ink text-[17px] tracking-tight mb-1">Verification</h2>
+          <p className="text-[12px] text-gray-500 mb-3">Ticks show next to your name and handicap in every tournament.</p>
+          <div className="space-y-3">
+            <IdentityUpload card value={profile.idCheck} onChange={v => {
+              profile.idCheck = v; refresh(n => n + 1)
+              if (v?.status === 'checking') showToast('ID uploaded — checking it now', 'info')
+              else if (v?.status === 'verified') showToast('ID verified — you now have the blue tick')
+            }} />
+            {profile.hasHandicap !== false && (
+              <div className="rounded-2xl bg-white shadow-card p-4">
+                <p className="font-display font-bold text-ink text-[15px] flex items-center gap-2"><VerifiedTick kind="handicap" size={18} /> Verify your handicap</p>
+                <p className="text-[12px] text-gray-500 mt-0.5 mb-3">We confirm your index with {profile.handicapBody || 'Golf Canada'}.</p>
+                <HandicapCheck profile={profile} onVerified={() => { profile.handicapVerified = true; refresh(n => n + 1); showToast(`Handicap verified with ${profile.handicapBody || 'Golf Canada'}`) }} />
+              </div>
+            )}
+          </div>
+        </div>
+
+        {activeCoupons().length > 0 && (
+          <div>
+            <h2 className="font-display font-bold text-ink text-[17px] tracking-tight mb-1">Your rewards</h2>
+            <p className="text-[12px] text-gray-500 mb-3">Every payment earns a discount at our golf shop.</p>
+            <div className="space-y-3">{activeCoupons().map(c => <CouponCard key={c.code} coupon={c} />)}</div>
+          </div>
         )}
 
         <Group title="Personal information">
