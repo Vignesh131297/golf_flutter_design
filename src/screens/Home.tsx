@@ -8,6 +8,8 @@ import {
 import { MOCK_PROFILE, MOCK_TOURNAMENTS } from '../data'
 import { leaderboard, myEntry, useLiveVersion } from '../live'
 import { toPar } from '../golf'
+import { AlertsCard, PermissionPrompt } from './Notifications'
+import { setPushPermission, useNotifyVersion, pushPermission } from '../notify'
 
 const DISCOVER   = MOCK_TOURNAMENTS.filter(t => t.registrationStatus === 'open').slice(0, 2)
 
@@ -18,7 +20,9 @@ function daysUntil(date: string) {
 
 export default function Home({ push, showToast }: SharedNavProps) {
   useLiveVersion()
+  useNotifyVersion()
   const [loading, setLoading] = useState(true)
+  const [asking, setAsking] = useState(false)
   const profile = MOCK_PROFILE
 
   // Tournaments the golfer is in, from the live store (registering/withdrawing updates these)
@@ -74,7 +78,7 @@ export default function Home({ push, showToast }: SharedNavProps) {
             </h2>
           </div>
           <button
-            onClick={() => showToast('Notifications coming soon', 'info')}
+            onClick={() => push('notification-settings')}
             aria-label="Notifications"
             className="ml-auto relative w-11 h-11 bg-white rounded-full shadow-card flex items-center justify-center active:scale-95 transition-all flex-shrink-0"
           >
@@ -82,9 +86,12 @@ export default function Home({ push, showToast }: SharedNavProps) {
               <path d="M9 2a5.5 5.5 0 00-5.5 5.5v2.25L2 12h14l-1.5-2.25V7.5A5.5 5.5 0 009 2z" stroke="#0c1a12" strokeWidth="1.4" strokeLinejoin="round"/>
               <path d="M7 14.5a2 2 0 004 0" stroke="#0c1a12" strokeWidth="1.4"/>
             </svg>
-            <span className="absolute top-2.5 right-3 w-2 h-2 rounded-full bg-rose-500 ring-2 ring-white" />
+            {pushPermission() !== 'granted' && <span className="absolute top-2.5 right-3 w-2 h-2 rounded-full bg-rose-500 ring-2 ring-white" />}
           </button>
         </div>
+
+        {/* Sprint 4 · PN1: ask for alerts at a useful moment — once they're in a tournament */}
+        {mine.length > 0 && <div className="-mb-3"><AlertsCard onAsk={() => setAsking(true)} onSettings={() => push('notification-settings')} /></div>}
 
         {/* Stats card */}
         <div className="bg-ink rounded-[28px] p-5 shadow-float relative overflow-hidden">
@@ -231,6 +238,7 @@ export default function Home({ push, showToast }: SharedNavProps) {
           </div>
         </div>
       </div>
+      {asking && <PermissionPrompt onDone={g => { setAsking(false); setPushPermission(g ? 'granted' : 'denied'); showToast(g ? 'Alerts are on for this phone' : 'No alerts — you’ll still get emails', g ? 'success' : 'info') }} />}
     </div>
   )
 }

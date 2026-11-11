@@ -298,6 +298,8 @@ export default function CourseDetails({ courseId, tournamentId, push, pop, showT
               <a href={course.scorecardImageUrl} target="_blank" rel="noreferrer"
                 className="mt-2 inline-flex items-center gap-1.5 text-[13px] font-bold font-display text-ink">View the club's scorecard ›</a>
             )}
+            {/* Sprint 4 · GC3/GC7: imported courses credit the provider */}
+            {course.source && <p className="mt-3 text-[11px] text-gray-400">Course data from {course.source.provider}{course.source.refreshedAt ? ` · updated ${course.source.refreshedAt.slice(0, 10)}` : ''}</p>}
           </div>
 
           <TeesList course={course} />
