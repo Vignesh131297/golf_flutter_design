@@ -21,6 +21,8 @@ import Leaderboard from './screens/Leaderboard'
 import LivePlay from './screens/LivePlay'
 import Profile from './screens/Profile'
 import EditProfile from './screens/EditProfile'
+import { AlertUnavailable, AnnouncementScreen, NotificationSettings, PushBanner, openAlert } from './screens/Notifications'
+import { unregisterThisPhone } from './notify'
 
 /* ───────────────── Status Bar ───────────────── */
 
@@ -539,6 +541,8 @@ export default function App() {
       cancelLabel: 'Stay',
       destructive: true,
       onConfirm: () => {
+        // Sprint 4 · PN1: this phone stops getting the account's alerts before anyone else signs in on it
+        unregisterThisPhone()
         signOutGolfer()
         setAccount(null)
         setNavStack([{ screen: 'home', direction: 'push' }])
@@ -656,6 +660,12 @@ export default function App() {
           return <MeScreen {...roleProps} />
         case 'web-only':
           return <WebOnlyScreen {...roleProps} />
+        case 'announcement':
+          return <AnnouncementScreen {...sharedProps} id={currentRoute.params?.id ?? ''} />
+        case 'alert-unavailable':
+          return <AlertUnavailable {...sharedProps} title={currentRoute.params?.title ?? 'Not available'} message={currentRoute.params?.message ?? ''} tournamentId={currentRoute.params?.tournamentId} />
+        case 'notification-settings':
+          return <NotificationSettings {...sharedProps} />
         default:
           return account?.kind === 'golfer' ? <Home {...sharedProps} /> : null
       }
@@ -692,6 +702,9 @@ export default function App() {
           <BottomNav tabs={tabs} activeTab={activeTab} onTabChange={switchTab} />
         )}
       </div>
+
+      {/* Sprint 4 · PN3: foreground alert banner (once per alert); tap re-checks access, then opens the right screen */}
+      <PushBanner enabled={isAuthenticated && account?.kind !== 'admin'} onOpen={e => openAlert(e, push)} />
 
       {/* Toast */}
       {toast && (

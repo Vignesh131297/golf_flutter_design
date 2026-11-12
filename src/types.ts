@@ -20,6 +20,10 @@ export type ScreenName =
   | 'course-rules'
   | 'staff-profile'
   | 'web-only'
+  /* Sprint 4 · notifications */
+  | 'announcement'
+  | 'alert-unavailable'
+  | 'notification-settings'
 
 export interface NavEntry {
   screen: ScreenName
@@ -131,6 +135,8 @@ export interface ScoringRules {
   cutAfterRound: number
   /** Number of players (and ties) who make the cut */
   cutSize: number
+  /** Sprint 4 · SC2: marker record required on every counting hole before verification (default 'required') */
+  markerPolicy?: 'required' | 'optional'
 }
 
 export interface Eligibility {
@@ -293,6 +299,8 @@ export interface Course {
   dressCode?: string
   status?: CourseStatus
   statusNote?: string
+  /** Sprint 4 · GC6/GC7: imported course provenance (shown as 'Course data from …') */
+  source?: { provider: string; providerCourseId: string; layoutId?: string; importedAt: string; importedBy: string; refreshedAt?: string; providerVersion?: string; filledByHand?: string[] }
 }
 
 export interface GolferProfile {

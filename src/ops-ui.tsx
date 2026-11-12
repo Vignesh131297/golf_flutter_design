@@ -4,7 +4,7 @@ import type { DialogData, ToastData, Tournament } from './types'
 import { Button, fieldClass } from './components'
 import { getCourse } from './data'
 import {
-  ROUND_STATUS_CODE, ROUND_STATUS_LABEL, cardFor, entriesFor, finishRoundForDemo, groupsFor, leaderboard, myEntry, roundHoles, roundStatus, suspensionFor, teamSizeOf, useLiveVersion,
+  ROUND_STATUS_CODE, ROUND_STATUS_LABEL, cardFor, entriesFor, outcomesFor, pickupAllowed, type HoleOutcome, finishRoundForDemo, groupsFor, leaderboard, myEntry, roundHoles, roundStatus, suspensionFor, teamSizeOf, useLiveVersion,
   type RoundStatus,
 } from './live'
 import { formatClock, toPar } from './golf'
@@ -14,7 +14,7 @@ import {
   finishReset, incidentKindLabel, incidentsFor, logIncident, markerCardFor, markerChoices, markerMissing, markerOf, mismatches, officialQueue, overallStandings, paceFor,
   pendingDq, pendingRequests, prizeLabel, prizesFor, raiseRequest, ranking, requestTitle, requestsFor, resolveIncident, resumePlay, roundNumbers, rulingsFor, scoreSheetHtml, sendToCommittee, setMarker, setPlayerStatus, signOffChecks, signOffFor, signOffRound,
   slotStatus, staffRoleOf, startReset, statusChoices, statusNoteFor, suspendPlay, unlockCard, verifyCards, winnersFor,
-  STAFF_ROLE_LABEL, useOpsVersion,
+  STAFF_ROLE_LABEL, useOpsVersion, blockerText, canOverride, markerOutcomesFor, outcomeText, overrideFor, overrideVerify, verifyBlockers,
   type ActivityKind, type Actor, type GroupPace, type Incident, type IncidentKind, type IncidentStatus, type NeedItem, type OrganiserRequest, type PaceStatus, type RankBasis, type RequestStatus, type SlotStatus, type Standing,
 } from './ops'
 
@@ -338,12 +338,16 @@ function CardSheet({ t, entryId, round, actor, editable, onClose, showToast }: {
   const course = getCourse(t.courseId)
   const holes = course ? roundHoles(t, course, round) : []
   const row = leaderboard(t, round).find(r => r.entry.id === entryId)
-  const card = cardFor(t, entryId, round)
-  const marked = markerCardFor(t, entryId, round)
+  const card = outcomesFor(t, entryId, round)
+  const marked = markerOutcomesFor(t, entryId, round)
   const diff = mismatches(t, entryId, round)
   const marker = markerOf(t.id, round, entryId)
+  const block = verifyBlockers(t, entryId, round)
+  const override = overrideFor(t.id, entryId, round)
+  const pickups = pickupAllowed(t)
   const [fixing, setFixing] = useState<number | null>(null)
-  const [strokes, setStrokes] = useState(4)
+  const [strokes, setStrokes] = useState<number | 'P'>(4)
+  const [overriding, setOverriding] = useState(false)
   const [reason, setReason] = useState('')
   const [error, setError] = useState('')
   const [sub, setSub] = useState<'status' | 'unlock' | 'marker' | null>(null)
@@ -361,13 +365,14 @@ function CardSheet({ t, entryId, round, actor, editable, onClose, showToast }: {
     if (!canEdit) return
     setFixing(i)
     setStrokes(marked[i] !== null && marked[i] !== card[i] ? marked[i]! : card[i] ?? holes[i].par)
+    setOverriding(false)
     setReason(marked[i] !== null && marked[i] !== card[i] ? 'Marker’s score confirmed' : '')
     setError('')
   }
   function save() {
     if (fixing === null) return
     if (!reason.trim()) return setError('A reason is required')
-    correctScore(t, entryId, round, fixing, strokes, reason, actor)
+    correctScore(t, entryId, round, fixing, strokes as HoleOutcome, reason, actor)
     showToast(`Hole ${holes[fixing].hole} corrected`)
     setFixing(null)
   }
@@ -375,7 +380,9 @@ function CardSheet({ t, entryId, round, actor, editable, onClose, showToast }: {
   return (
     <Sheet title={row.entry.name} subtitle={`${row.position} · gross ${row.thru ? toPar(row.grossToPar) : '–'} · net ${row.thru ? toPar(row.netToPar) : '–'} · thru ${row.thru}`} onClose={onClose}
       footer={editable ? (state !== 'verified'
-        ? <Button fullWidth disabled={diff.length > 0} onClick={() => { verifyCards(t, [entryId], round, actor); showToast('Card verified'); onClose() }}>{diff.length ? 'Settle red holes first' : 'Verify card'}</Button>
+        ? (block.ready || diff.length || !canOverride(actor) || row.status !== 'playing'
+          ? <Button fullWidth disabled={!block.ready} onClick={() => { verifyCards(t, [entryId], round, actor); showToast('Card verified'); onClose() }}>{diff.length ? 'Settle red holes first' : !block.ready ? 'Waiting for the marker' : 'Verify card'}</Button>
+          : <Button fullWidth variant="secondary" onClick={() => { setOverriding(true); setFixing(null); setReason(''); setError('') }}>Verify by override…</Button>)
         : <Button variant="secondary" fullWidth onClick={() => setSub('unlock')}>Unlock to correct…</Button>) : undefined}>
       {[holes.slice(0, 9), holes.slice(9)].filter(n => n.length).map((nine, k) => (
         <div key={k} className="grid grid-cols-9 gap-1">
@@ -384,14 +391,30 @@ function CardSheet({ t, entryId, round, actor, editable, onClose, showToast }: {
             return (
               <button key={h.hole} onClick={() => open(i)} className={`flex flex-col items-center rounded-xl py-1 ${fixing === i ? 'bg-lime-400/40' : diff.includes(i) ? 'bg-rose-50' : ''}`}>
                 <span className="text-[9px] font-bold text-gray-400">{h.hole}</span>
-                <ScoreCell strokes={card[i]} par={h.par} />
-                <span className={`text-[10px] font-semibold ${diff.includes(i) ? 'text-rose-600' : 'text-gray-300'}`}>{marked[i] ?? '·'}</span>
+                {card[i] === 'P' ? <span className="inline-flex w-7 h-7 items-center justify-center rounded-lg bg-gray-200 text-gray-600 font-display font-extrabold text-[12px]">P</span> : <ScoreCell strokes={card[i] as number | null} par={h.par} />}
+                <span className={`text-[10px] font-semibold ${diff.includes(i) ? 'text-rose-600' : block.unconfirmed.includes(i) ? 'text-amber-600' : 'text-gray-300'}`}>{marked[i] ?? (block.unconfirmed.includes(i) ? '?' : '·')}</span>
               </button>
             )
           })}
         </div>
       ))}
       <p className="text-[11px] text-gray-500">Top: player · bottom: marker{marker ? ` (${marker.name}${markerState !== 'playing' ? `, ${ROUND_STATUS_CODE[markerState]}` : ''})` : ''}. {canEdit ? 'Tap a hole to correct it.' : state === 'verified' ? 'Verified.' : ''}</p>
+      {override && <p className="rounded-2xl bg-violet-50 px-4 py-2.5 text-[13px] text-violet-900 leading-snug"><span className="font-bold">Verified by override</span> — {override.by.name}: “{override.reason}”. Not marker-confirmed.</p>}
+      {!override && !block.ready && !diff.length && state !== 'in-progress' && row.status === 'playing' && (
+        <p className="rounded-2xl bg-amber-50 px-4 py-2.5 text-[13px] text-amber-900 leading-snug"><span className="font-bold">Can’t verify yet.</span> {blockerText(block, i => holes[i]?.hole ?? i + 1).join(' · ')}.</p>
+      )}
+      {overriding && (
+        <div className="rounded-2xl ring-1 ring-black/[0.06] p-3.5 space-y-3">
+          <p className="text-[14px] font-bold font-display text-ink">Verify without the marker</p>
+          <p className="text-[12px] text-gray-500">Only when the marker can’t confirm. The card shows “override”, never “marker-confirmed”.</p>
+          <input aria-label="Override reason" value={reason} onChange={e => { setReason(e.target.value); setError('') }} placeholder="Reason (required)" className={fieldClass(!!error)} />
+          {error && <p className="text-xs text-red-500 font-medium">{error}</p>}
+          <div className="flex gap-2">
+            <Button variant="secondary" fullWidth size="sm" onClick={() => setOverriding(false)}>Cancel</Button>
+            <Button fullWidth size="sm" onClick={() => { if (!reason.trim()) return setError('A reason is required'); overrideVerify(t, entryId, round, reason, actor); showToast('Card verified by override'); onClose() }}>Verify by override</Button>
+          </div>
+        </div>
+      )}
       {noMarker && <p className="rounded-2xl bg-rose-50 px-4 py-2.5 text-[13px] text-rose-800 leading-snug"><span className="font-bold">No marker.</span> {marker?.name} can’t mark any more — give the card to someone else in the group.</p>}
       {pendingDq(t.id, entryId) && <p className="rounded-2xl bg-rose-50 px-4 py-2.5 text-[13px] text-rose-800 leading-snug"><span className="font-bold">Disqualification with the organiser.</span> The player keeps playing until they decide.</p>}
       {row.status === 'dq' && !decidesPlay(actor) && <p className="rounded-2xl bg-canvas px-4 py-2.5 text-[13px] text-gray-600 leading-snug">Only the organiser can change a disqualification.</p>}
@@ -406,12 +429,13 @@ function CardSheet({ t, entryId, round, actor, editable, onClose, showToast }: {
       )}
       {fixing !== null && (
         <div className="rounded-2xl ring-1 ring-black/[0.06] p-3.5 space-y-3">
-          <p className="text-[14px] font-bold font-display text-ink">Correct hole {holes[fixing].hole} <span className="text-gray-400 font-semibold">· player {card[fixing] ?? '–'} · marker {marked[fixing] ?? '–'}</span></p>
+          <p className="text-[14px] font-bold font-display text-ink">Correct hole {holes[fixing].hole} <span className="text-gray-400 font-semibold">· player {outcomeText(card[fixing])} · marker {outcomeText(marked[fixing])}</span></p>
           <div className="flex items-center justify-center gap-5">
-            <button onClick={() => setStrokes(Math.max(1, strokes - 1))} aria-label="One fewer" className="w-11 h-11 rounded-full bg-canvas text-[22px] font-bold">−</button>
+            <button onClick={() => setStrokes(strokes === 'P' ? holes[fixing].par : Math.max(1, strokes - 1))} aria-label="One fewer" className="w-11 h-11 rounded-full bg-canvas text-[22px] font-bold">−</button>
             <span className="font-display font-extrabold text-ink text-[36px] w-12 text-center">{strokes}</span>
-            <button onClick={() => setStrokes(Math.min(15, strokes + 1))} aria-label="One more" className="w-11 h-11 rounded-full bg-canvas text-[22px] font-bold">+</button>
+            <button onClick={() => setStrokes(strokes === 'P' ? holes[fixing].par : Math.min(15, strokes + 1))} aria-label="One more" className="w-11 h-11 rounded-full bg-canvas text-[22px] font-bold">+</button>
           </div>
+          {pickups && <button onClick={() => setStrokes('P')} aria-pressed={strokes === 'P'} className={`w-full h-9 rounded-full text-[12px] font-bold font-display ${strokes === 'P' ? 'bg-ink text-white' : 'bg-canvas text-ink'}`}>Pickup (0 points)</button>}
           <input aria-label="Reason" value={reason} onChange={e => { setReason(e.target.value); setError('') }} placeholder="Reason (goes in the audit trail)" className={fieldClass(!!error)} />
           {error && <p className="text-xs text-red-500 font-medium">{error}</p>}
           <div className="flex gap-2"><Button variant="secondary" fullWidth size="sm" onClick={() => setFixing(null)}>Cancel</Button><Button fullWidth size="sm" onClick={save}>Save correction</Button></div>
@@ -431,7 +455,7 @@ export function ScorecardList({ t, round, actor, canManage, showToast }: { t: To
   const shown = rows.filter(r => filter === 'all' || (filter === 'verified' ? r.state === 'verified' : attention(r)))
   const closed = t.status === 'completed' || t.status === 'cancelled'
   const editable = canManage && !closed && !signOffFor(t.id, round)
-  const clean = rows.filter(r => r.status === 'playing' && r.state === 'submitted' && !mismatches(t, r.entry.id, round).length)
+  const clean = rows.filter(r => r.status === 'playing' && r.state === 'submitted' && verifyBlockers(t, r.entry.id, round).ready)
 
   return (
     <div className="space-y-3">

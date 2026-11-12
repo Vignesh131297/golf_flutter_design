@@ -8,6 +8,7 @@ import {
 import { getTournament, getCourse, MOCK_PROFILE } from '../data'
 import { ratingsGenderOf } from '../account-rules'
 import { entriesFor, groupOf, myEntry, registerMe, registrantsFor, ticksFor, useLiveVersion, withdrawMe } from '../live'
+import { MY_ACCOUNT, announcementsFor, canReadAnnouncement, notifyRegistration, useNotifyVersion } from '../notify'
 import { Sheet } from '../ops-ui'
 import {
   TIE_BREAK_OPTIONS, formatClock, formatDateTime, formatDay, formatMoney, isoDate, isoLocalDateTime, teeSwatch, teeTotal,
@@ -104,6 +105,7 @@ function eligibilityProblem(t: Tournament): string | null {
 const divisionFor = (divisions: Division[] = [], hcp: number) => divisions.find(d => hcp >= d.minHandicap && hcp <= d.maxHandicap)
 
 export default function TournamentDetails({ tournamentId, push, pop, showToast, showDialog }: TournamentDetailsProps) {
+  useNotifyVersion()
   useLiveVersion()
   const [loading, setLoading] = useState(true)
   const [paying, setPaying] = useState(false)
@@ -189,7 +191,7 @@ export default function TournamentDetails({ tournamentId, push, pop, showToast, 
       title: 'Confirm your entry',
       message: `${myDivision.name} division · free entry. Free withdrawal until ${formatDateTime(reg.withdrawBy)}.`,
       confirmLabel: 'Register',
-      onConfirm: () => { registerMe(t, myDivision.id, false, 'free'); showToast(`You're registered for ${t.name}!`) },
+      onConfirm: () => { registerMe(t, myDivision.id, false, 'free'); notifyRegistration(t, MOCK_PROFILE.email, `${MOCK_PROFILE.firstName} ${MOCK_PROFILE.lastName}`); showToast(`You're registered for ${t.name}!`) },
     })
   }
 
@@ -292,6 +294,21 @@ export default function TournamentDetails({ tournamentId, push, pop, showToast, 
             <p className="text-[12px] text-gray-500 mt-2 px-1">
               Playing with {myGroup.entryIds.filter(e => e !== me?.id).map(eid => field.find(f => f.id === eid)?.name).filter(Boolean).join(', ')}
             </p>
+          )}
+
+          {/* Sprint 4 · AN1: announcements this account received for this tournament */}
+          {announcementsFor(t.id).filter(a => canReadAnnouncement(a, MY_ACCOUNT())).length > 0 && (
+            <Section title="Announcements">
+              <div className="space-y-2">
+                {announcementsFor(t.id).filter(a => canReadAnnouncement(a, MY_ACCOUNT())).slice(0, 3).map(a => (
+                  <button key={a.id} onClick={() => push('announcement', { id: a.id })} className="w-full text-left rounded-2xl bg-white shadow-card px-4 py-3">
+                    <span className="block text-[11px] font-bold text-gray-400">{a.sentBy.name} · {new Date(a.sentAt).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' })}</span>
+                    <span className="block text-[14px] font-bold font-display text-ink">{a.title}</span>
+                    <span className="block text-[12px] text-gray-500 line-clamp-1">{a.body}</span>
+                  </button>
+                ))}
+              </div>
+            </Section>
           )}
 
           <Section title="About">
@@ -414,7 +431,7 @@ export default function TournamentDetails({ tournamentId, push, pop, showToast, 
       {paying && myDivision && (
         <PaymentSheet title={`Enter ${t.name}`} currency={fees.currency} total={priceNow} onClose={() => setPaying(false)}
           lines={[['Division', myDivision.name], [fees.perTeam ? 'Entry (per team)' : 'Entry', formatMoney(priceNow, fees.currency)]]}
-          onPaid={() => { registerMe(t, myDivision.id, false, 'paid'); showToast(`Paid ${formatMoney(priceNow, fees.currency)} — you're registered!`) }} />
+          onPaid={() => { registerMe(t, myDivision.id, false, 'paid'); notifyRegistration(t, MOCK_PROFILE.email, `${MOCK_PROFILE.firstName} ${MOCK_PROFILE.lastName}`); showToast(`Paid ${formatMoney(priceNow, fees.currency)} — you're registered!`) }} />
       )}
     </div>
   )

@@ -260,9 +260,9 @@ export default function Profile({ push, showToast, onSignOut, onSwitchRole, onSw
                   <path d="M9 1.5v2M9 14.5v2M1.5 9h2M14.5 9h2M3.7 3.7l1.4 1.4M12.9 12.9l1.4 1.4M3.7 14.3l1.4-1.4M12.9 5.1l1.4-1.4" stroke="#1a3a2a" strokeWidth="1.4" strokeLinecap="round"/>
                 </svg>
               }
-              label="Settings"
-              sublabel="Notifications, privacy, security"
-              onClick={() => showToast('Settings coming soon', 'info')}
+              label="Notifications"
+              sublabel="Tournament alerts, your devices"
+              onClick={() => push('notification-settings')}
             />
             <ActionRow
               icon={<IconSignOut />}
