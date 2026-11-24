@@ -104,6 +104,8 @@ export interface Tournament {
   organizerId?: string
   /** Four-Ball and scramble teams */
   team?: TeamSettings
+  /** Set by the web console; team formats imply it */
+  participation?: 'individual' | 'team'
   /** Target round time and how far behind a group can fall before it's flagged */
   pace?: { targetMinutes: number; flagMinutes: number }
 }
@@ -165,6 +167,8 @@ export interface RegistrationWindow {
   waitlist: boolean
   withdrawBy: string
   refundPolicy: string
+  /** Sprint 5 · #189: team events only — the team limit. The golfer limit is maxTeams × team size. */
+  maxTeams?: number
 }
 
 export interface TournamentFees {

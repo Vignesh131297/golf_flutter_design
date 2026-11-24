@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Point, SharedNavProps } from '../types'
 import { Button, ErrorState, RoundButton, IconBack } from '../components'
 import { getTournament, getCourse } from '../data'
@@ -11,7 +11,7 @@ import { HoleMapView, greenDistances, hazardsAhead } from '../hole-map'
 import { ScoreCell } from './Leaderboard'
 import { ROUND_STATUS_LABEL, groupBehind, roundStatus, suspensionFor, teeSetIdFor } from '../live'
 import {
-  currentRound, incidentsFor, logIncident, markedBy, markerMissing, markerOf, markerOutcomesFor, mismatches, outcomeText, roundNumbers, rulingsFor, setMarkerPickup,
+  currentRound, incidentsFor, logIncident, markedBy, markerMissing, markerOf, markerOutcomesFor, mismatches, outcomeText, roundNumbers, rulingsFor, scoreChangesFor, setMarkerPickup,
   setMarkerStrokes, useOpsVersion,
 } from '../ops'
 import { IncidentSheet, MyRoundStatus, MyRulingsSheet, Sheet } from '../ops-ui'
@@ -52,6 +52,35 @@ export default function LivePlay({ tournamentId, pop, push, showToast, showDialo
   const [showRulings, setShowRulings] = useState(false)
   const [settling, setSettling] = useState(false)
   const [asking, setAsking] = useState(false)
+  /*
+   * Sprint 5 · #232 / #249: no signal on the course. A hole saved while offline is kept on the phone
+   * ("Not sent yet") and sent when the connection comes back — never dropped, never sent twice.
+   */
+  const [online, setOnline] = useState(() => typeof navigator === 'undefined' || navigator.onLine !== false)
+  const [queued, setQueued] = useState<Record<number, number | 'P'>>(() => loadQueue(tournamentId))
+  /** The saved value when the golfer started changing this hole, to spot a change made meanwhile */
+  const [draftBase, setDraftBase] = useState<HoleOutcome | undefined>(undefined)
+  useEffect(() => {
+    const up = () => setOnline(true)
+    const down = () => setOnline(false)
+    window.addEventListener('online', up)
+    window.addEventListener('offline', down)
+    return () => { window.removeEventListener('online', up); window.removeEventListener('offline', down) }
+  }, [])
+  useEffect(() => {
+    // Back online: send what was kept on the phone, in hole order, exactly once, then clear it
+    if (!online) return
+    const q = loadQueue(tournamentId)
+    const holesQueued = Object.entries(q).map(([i, v]) => [Number(i), v] as [number, number | 'P']).sort((a, b) => a[0] - b[0])
+    const tt = getTournament(tournamentId)
+    const mine = tt ? myEntry(tt.id) : undefined
+    if (!holesQueued.length || !tt || !mine) return
+    const r = currentRound(tt)
+    saveQueue(tournamentId, {})
+    for (const [i, v] of holesQueued) if (v === 'P') setPickup(tt, mine.id, r, i, mine.name); else setStrokes(tt, mine.id, r, i, v, mine.name)
+    setQueued({})
+    showToast(`Back online — ${holesQueued.length} score${holesQueued.length === 1 ? '' : 's'} sent`)
+  }, [online, tournamentId]) // eslint-disable-line react-hooks/exhaustive-deps
   // The official signed off the last round while this screen was open: carry on from the new round's first open hole
   const [seenRound, setSeenRound] = useState(round)
   if (round !== seenRound) { setSeenRound(round); setIndex(firstOpen < 0 ? 0 : firstOpen) }
@@ -87,7 +116,8 @@ export default function LivePlay({ tournamentId, pop, push, showToast, showDialo
   const toGreen = greenDistances(map, ball)
   const ahead = hazardsAhead(map, ball)[0]
   const saved = card[index]
-  const value = draft ?? saved ?? hole.par
+  // A hole kept on the phone while offline shows what was kept, not par
+  const value = draft ?? queued[index] ?? saved ?? hole.par
   const isPick = value === 'P'
   const strokes = isPick ? hole.par : value
   const pickups = pickupAllowed(t)
@@ -106,14 +136,37 @@ export default function LivePlay({ tournamentId, pop, push, showToast, showDialo
   const disputed = new Set(incidentsFor(t.id).filter(i => i.kind === 'score-dispute' && i.status !== 'resolved' && i.entryIds.includes(me.id)).map(i => i.hole))
   const unsettled = mismatches(t, me.id, round).filter(i => !disputed.has(holes[i].hole))
   const behind = groupBehind(t.id, round, me.id)
+  // Sprint 5 · #232: an official's correction on this card, shown on the hole it changed
+  const corrections = scoreChangesFor(t.id, me.id).filter(c => c.round === round)
+  const correction = corrections.find(c => c.holeIndex === index)
+  const pending = queued[index]
+  // Someone else (an official, or a teammate on a scramble card) changed this hole while it was being edited
+  const changedMeanwhile = draft !== null && draftBase !== undefined && saved !== draftBase
 
   function goTo(i: number) {
     setIndex(Math.max(0, Math.min(holes.length - 1, i)))
     setTarget(undefined)
     setDraft(null)
+    setDraftBase(undefined)
+  }
+
+  /** Start or change the draft for this hole, remembering what was saved when editing began */
+  function edit(v: number | 'P') {
+    if (draft === null) setDraftBase(saved)
+    setDraft(v)
   }
 
   function saveScore() {
+    if (!online) {
+      const next = { ...queued, [index]: isPick ? ('P' as const) : strokes }
+      saveQueue(t!.id, next)
+      setQueued(next)
+      showToast(`Hole ${hole.hole} kept on your phone — it's sent when you're back online`, 'info')
+      setDraft(null)
+      setDraftBase(undefined)
+      if (index < holes.length - 1) goTo(index + 1)
+      return
+    }
     if (isPick) {
       setPickup(t!, me!.id, round, index, me!.name)
       showToast(`Hole ${hole.hole}: pickup — 0 points`)
@@ -122,6 +175,7 @@ export default function LivePlay({ tournamentId, pop, push, showToast, showDialo
       showToast(`Hole ${hole.hole}: ${strokes} — ${scoreLabel(strokes, hole.par)}${scramble ? ' · team card updated' : ''}`)
     }
     setDraft(null)
+    setDraftBase(undefined)
     if (index < holes.length - 1) goTo(index + 1)
     else setShowCard(true)
   }
@@ -206,6 +260,14 @@ export default function LivePlay({ tournamentId, pop, push, showToast, showDialo
         </div>
       )}
 
+      {/* Sprint 5 · #232: no signal — scores are kept on the phone until it's back */}
+      {!online && (
+        <div role="status" className="flex-shrink-0 mx-4 mb-2 rounded-2xl bg-ink text-white px-4 py-2.5">
+          <p className="font-display font-bold text-[13px] leading-snug">You’re offline</p>
+          <p className="text-[11px] text-white/75 leading-snug">Keep scoring — holes are kept on this phone and sent when you’re back online. The leaderboard may be out of date.</p>
+        </div>
+      )}
+
       {/* An official stopped play: shown until they resume it */}
       {suspensionFor(t.id) && (
         <div role="alert" className="flex-shrink-0 mx-4 mb-2 rounded-2xl bg-rose-600 text-white px-4 py-3">
@@ -272,7 +334,7 @@ export default function LivePlay({ tournamentId, pop, push, showToast, showDialo
       {/* Score */}
       <div className="flex-shrink-0 bg-white rounded-t-[28px] shadow-float mt-3 px-5 pt-4 pb-3">
         <div className="flex items-center gap-3">
-          <button disabled={locked || (!isPick && strokes <= 1)} onClick={() => setDraft(isPick ? hole.par : strokes - 1)} aria-label="One fewer stroke"
+          <button disabled={locked || (!isPick && strokes <= 1)} onClick={() => edit(isPick ? hole.par : strokes - 1)} aria-label="One fewer stroke"
             className="w-12 h-12 rounded-full bg-canvas text-ink text-[24px] font-bold disabled:opacity-40">−</button>
           <div className="flex-1 text-center">
             <p className="font-display font-extrabold text-ink text-[40px] leading-none">{isPick ? 'P' : strokes}</p>
@@ -280,17 +342,17 @@ export default function LivePlay({ tournamentId, pop, push, showToast, showDialo
               {isPick ? 'Picked up · 0 points' : stableford ? `${scoreLabel(strokes, hole.par)} · ${points} pt${points === 1 ? '' : 's'}` : `${scoreLabel(strokes, hole.par)} · net ${strokes - received}`}
             </p>
           </div>
-          <button disabled={locked || (!isPick && strokes >= 15)} onClick={() => setDraft(isPick ? hole.par : strokes + 1)} aria-label="One more stroke"
+          <button disabled={locked || (!isPick && strokes >= 15)} onClick={() => edit(isPick ? hole.par : strokes + 1)} aria-label="One more stroke"
             className="w-12 h-12 rounded-full bg-canvas text-ink text-[24px] font-bold disabled:opacity-40">+</button>
         </div>
         {pickups && !locked && (
-          <button onClick={() => setDraft(isPick ? hole.par : 'P')} aria-pressed={isPick}
+          <button onClick={() => edit(isPick ? hole.par : 'P')} aria-pressed={isPick}
             className={`block mx-auto mt-2 h-8 px-4 rounded-full text-[12px] font-bold font-display ${isPick ? 'bg-ink text-white' : 'bg-canvas text-ink'}`}>
             {isPick ? 'Undo pickup' : 'Picked up (no score)'}
           </button>
         )}
         {shots.length > 0 && !locked && strokes !== shots.length + 1 && (
-          <button onClick={() => setDraft(shots.length + 1)} className="block mx-auto mt-1 text-[11px] font-semibold text-pine-600 underline underline-offset-4">
+          <button onClick={() => edit(shots.length + 1)} className="block mx-auto mt-1 text-[11px] font-semibold text-pine-600 underline underline-offset-4">
             Use marked shots ({shots.length} + 1 putt)
           </button>
         )}
@@ -318,6 +380,16 @@ export default function LivePlay({ tournamentId, pop, push, showToast, showDialo
             </div>
           )
         })}
+        {changedMeanwhile && (
+          <div role="alert" className="mt-3 rounded-2xl bg-amber-50 text-amber-900 px-3 py-2.5 text-[12px] leading-snug">
+            <p><span className="font-bold">Hole {hole.hole} was changed to {outcomeText(saved)}</span>{correction ? ` by ${correction.by.name}` : ' on your card'} while you were editing. Keep your {isPick ? 'pickup' : strokes}?</p>
+            <div className="flex gap-2 mt-2">
+              <button onClick={() => { setDraft(null); setDraftBase(undefined) }} className="h-8 px-3 rounded-full bg-amber-900 text-white text-[11px] font-bold font-display">Use {outcomeText(saved)}</button>
+              <button onClick={() => setDraftBase(saved)} className="h-8 px-3 rounded-full bg-white text-amber-900 ring-1 ring-amber-900/20 text-[11px] font-bold font-display">Keep mine</button>
+            </div>
+          </div>
+        )}
+        <HoleSaveStatus pending={pending} saved={saved} draft={draft} correction={correction ? `Corrected by ${correction.by.name}: ${outcomeText(correction.from)} → ${outcomeText(correction.to)}${correction.reason ? ` · ${correction.reason}` : ''}` : undefined} />
         <div className="flex gap-2 mt-3">
           <Button variant="secondary" onClick={() => setShowCard(true)} className="flex-shrink-0">Card</Button>
           <Button fullWidth onClick={saveScore} disabled={locked}>
@@ -411,4 +483,28 @@ export default function LivePlay({ tournamentId, pop, push, showToast, showDialo
       {showRulings && <MyRulingsSheet t={t} entryId={me.id} onClose={() => setShowRulings(false)} />}
     </div>
   )
+}
+
+/* ───────── Sprint 5 · #232: per-hole save state and the offline queue ───────── */
+
+function HoleSaveStatus({ pending, saved, draft, correction }: { pending?: number | 'P'; saved: HoleOutcome; draft: number | 'P' | null; correction?: string }) {
+  let text = ''
+  let tone = 'text-gray-400'
+  if (pending !== undefined) { text = `Not sent yet · ${pending === 'P' ? 'pickup' : pending} kept on this phone`; tone = 'text-amber-700' }
+  else if (draft !== null && draft !== saved) { text = saved === null ? 'Not saved' : `Not saved · card shows ${saved === 'P' ? 'pickup' : saved}`; tone = 'text-gray-500' }
+  else if (saved !== null) { text = 'Saved ✓'; tone = 'text-pine-600' }
+  return (
+    <div className="mt-2 text-center">
+      {text && <p className={`text-[11px] font-semibold ${tone}`}>{text}</p>}
+      {correction && <p className="mt-1 inline-block rounded-full bg-sky-50 text-sky-800 text-[11px] font-semibold px-3 py-1">{correction}</p>}
+    </div>
+  )
+}
+
+const queueKey = (tournamentId: string) => `gtp-offline-scores-${tournamentId}`
+function loadQueue(tournamentId: string): Record<number, number | 'P'> {
+  try { return JSON.parse(localStorage.getItem(queueKey(tournamentId)) ?? '{}') } catch { return {} }
+}
+function saveQueue(tournamentId: string, q: Record<number, number | 'P'>) {
+  try { localStorage.setItem(queueKey(tournamentId), JSON.stringify(q)) } catch { /* private mode */ }
 }
