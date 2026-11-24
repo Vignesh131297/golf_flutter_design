@@ -1,3 +1,4 @@
+import { fullMessage } from '../capacity'
 import { useState, useEffect, type ReactNode } from 'react'
 import type { Division, SharedNavProps, Tournament } from '../types'
 import {
@@ -7,8 +8,8 @@ import {
 } from '../components'
 import { getTournament, getCourse, MOCK_PROFILE } from '../data'
 import { ratingsGenderOf } from '../account-rules'
-import { entriesFor, groupOf, myEntry, registerMe, registrantsFor, ticksFor, useLiveVersion, withdrawMe } from '../live'
-import { MY_ACCOUNT, announcementsFor, canReadAnnouncement, notifyRegistration, useNotifyVersion } from '../notify'
+import { entriesFor, fieldCapacity, groupOf, suspensionFor, myEntry, registerMe, registrantsFor, ticksFor, useLiveVersion, withdrawMe } from '../live'
+import { MY_ACCOUNT, announcementsFor, canReadAnnouncement, eventsFor, notifyRegistration, useNotifyVersion } from '../notify'
 import { Sheet } from '../ops-ui'
 import {
   TIE_BREAK_OPTIONS, formatClock, formatDateTime, formatDay, formatMoney, isoDate, isoLocalDateTime, teeSwatch, teeTotal,
@@ -146,7 +147,12 @@ export default function TournamentDetails({ tournamentId, push, pop, showToast, 
   const me = myEntry(t.id)
   const field = entriesFor(t.id).filter(e => e.status === 'registered')
   const players = Math.max(t.players, field.length)
-  const spotsLeft = t.maxPlayers - players
+  // Sprint 5 · #191: team events fill by teams; the count comes from the field records
+  const cap = fieldCapacity(t)
+  const spotsLeft = cap.full ? 0 : cap.remainingGolfers
+  // Sprint 5 · #233: show what changed since the golfer last looked
+  const suspended = t.status === 'in-progress' ? suspensionFor(t.id) : undefined
+  const teeChange = eventsFor(t.id).find(ev => ev.kind === 'tee-time-changed' && ev.recipients.some(r => r.account === MY_ACCOUNT()))
   const fees = t.fees!
   const reg = t.registration!
   const scoring = t.scoring!
@@ -185,7 +191,9 @@ export default function TournamentDetails({ tournamentId, push, pop, showToast, 
     }
     if (!myDivision) { showToast('No division matches your handicap', 'error'); return }
     // No waiting list (client answer T-04); paid entry online from the first release (T-06)
-    if (spotsLeft <= 0) { showToast('The field is full — contact the organiser', 'info'); return }
+    // Re-check at the moment of registering: the field may have filled since the screen opened
+    const latest = fieldCapacity(t!)
+    if (latest.full) { showDialog({ title: 'Registration is full', message: fullMessage(latest), confirmLabel: 'OK', cancelLabel: 'Close', onConfirm: () => {} }); return }
     if (priceNow > 0) { setPaying(true); return }
     showDialog({
       title: 'Confirm your entry',
@@ -215,7 +223,7 @@ export default function TournamentDetails({ tournamentId, push, pop, showToast, 
     : isClosed || !windowOpen ? <Button variant="ghost" disabled fullWidth>{now < reg.opensAt ? `Opens ${formatDay(reg.opensAt)}` : 'Registration closed'}</Button>
     : isComingSoon ? <Button fullWidth onClick={() => showToast("You'll be notified when registration opens")}>Notify me</Button>
     : problem ? <Button variant="ghost" disabled fullWidth>Not eligible</Button>
-    : spotsLeft <= 0 ? <Button variant="ghost" disabled fullWidth>Field is full</Button>
+    : spotsLeft <= 0 ? <Button variant="ghost" disabled fullWidth>Registration full</Button>
     : <Button fullWidth onClick={register}>{priceNow > 0 ? `Register & pay ${formatMoney(priceNow, fees.currency)}` : 'Register'}</Button>
 
   return (
@@ -257,11 +265,17 @@ export default function TournamentDetails({ tournamentId, push, pop, showToast, 
             <InfoTile icon={<IconCalendar />} label="Date" value={t.dateRange} />
             <InfoTile icon={<IconClock />} label={sheet.startType === 'shotgun' ? 'Shotgun' : 'First tee'} value={formatClock(sheet.firstTeeTime)} />
             <InfoTile icon={<IconCourse />} label="Format" value={t.format} />
-            <InfoTile icon={<IconUsers />} label="Field" value={`${players} / ${t.maxPlayers}`} />
+            <InfoTile icon={<IconUsers />} label="Field" value={cap.team ? `${cap.registeredTeams} / ${cap.maxTeams ?? '—'} teams` : `${players} / ${t.maxPlayers}`} />
           </div>
 
           {/* Your entry */}
           <div className="mt-6 space-y-3">
+            {suspended && (
+              <div className="rounded-2xl px-4 py-3.5 bg-amber-50 text-amber-900">
+                <p className="text-sm font-bold font-display">Play suspended</p>
+                <p className="text-xs opacity-80 mt-0.5">{suspended.reason ? `${suspended.reason}. ` : ''}Scoring is paused — stay where you are until play resumes.</p>
+              </div>
+            )}
             {isLive && (
               <div className="rounded-2xl px-4 py-3.5 bg-rose-50 text-rose-700">
                 <p className="text-sm font-bold font-display">Live now</p>
@@ -274,15 +288,17 @@ export default function TournamentDetails({ tournamentId, push, pop, showToast, 
                 <div>
                   <p className="text-sm font-bold text-ink font-display">{isLive ? 'You’re playing' : "You're registered!"}</p>
                   <p className="text-xs text-pine-700 mt-0.5">
-                    {myDivision?.name} division{myGroup ? ` · tee time ${formatClock(myGroup.time)} off hole ${myGroup.startHole}` : ' · tee times published before the event'}
+                    {myDivision?.name} division{myGroup ? ` · tee time ${formatClock(myGroup.time)} off hole ${myGroup.startHole}` : ' · groups not published yet · tee time to be confirmed'}
+                    {myGroup && teeChange && <span className="ml-1.5 inline-flex items-center h-5 px-2 rounded-full bg-amber-400 text-ink text-[10px] font-bold font-display align-middle">Updated</span>}
                   </p>
+                  {myGroup && teeChange && <p className="text-[11px] text-pine-700/80 mt-0.5">{teeChange.body}</p>}
                 </div>
               </div>
             )}
             {isWaitlisted && <Notice tone="amber" title="You're on the waiting list" body="We'll let you know if a spot opens up." />}
             {isOpen && !isRegistered && !isWaitlisted && problem && <Notice tone="amber" title="Not eligible" body={problem} />}
             {isOpen && !isRegistered && !isWaitlisted && !problem && (
-              <div className="bg-canvas rounded-2xl p-4"><SpotsBar players={players} maxPlayers={t.maxPlayers} /></div>
+              <div className="bg-canvas rounded-2xl p-4"><SpotsBar players={players} maxPlayers={t.maxPlayers} cap={cap} /></div>
             )}
             {isClosed && <Notice tone="rose" title="Registration closed" body="The registration period for this tournament has ended." />}
             {isComingSoon && <Notice tone="amber" title="Registration opening soon" body={reg.opensAt ? `Opens ${formatDateTime(reg.opensAt)}.` : 'Details will be announced shortly.'} />}
@@ -430,6 +446,8 @@ export default function TournamentDetails({ tournamentId, push, pop, showToast, 
       </div>
       {paying && myDivision && (
         <PaymentSheet title={`Enter ${t.name}`} currency={fees.currency} total={priceNow} onClose={() => setPaying(false)}
+          onCancel={() => showToast("Payment cancelled — you haven't been charged and you're not registered yet", 'info')}
+          onPending={() => showToast("Payment is processing — we'll confirm your entry by email and in the app", 'info')}
           lines={[['Division', myDivision.name], [fees.perTeam ? 'Entry (per team)' : 'Entry', formatMoney(priceNow, fees.currency)]]}
           onPaid={() => { registerMe(t, myDivision.id, false, 'paid'); notifyRegistration(t, MOCK_PROFILE.email, `${MOCK_PROFILE.firstName} ${MOCK_PROFILE.lastName}`); showToast(`Paid ${formatMoney(priceNow, fees.currency)} — you're registered!`) }} />
       )}
