@@ -6,7 +6,7 @@ import {
   addShot, cardState, entriesFor, leaderboard, myEntry, outcomesFor, pickupAllowed, roundHoles, setCardState, setPickup, setStrokes, shotsFor, teamEntryFor,
   undoShot, useLiveVersion, type HoleOutcome,
 } from '../live'
-import { dist, generateHoleMap, playingHandicap, scoreLabel, strokesOnHole, toPar, formatClock } from '../golf'
+import { dist, generateHoleMap, pickupAfter, pickupName, playingHandicap, scoreLabel, strokesOnHole, toPar, formatClock } from '../golf'
 import { HoleMapView, greenDistances, hazardsAhead } from '../hole-map'
 import { ScoreCell } from './Leaderboard'
 import { ROUND_STATUS_LABEL, groupBehind, roundStatus, suspensionFor, teeSetIdFor } from '../live'
@@ -345,6 +345,8 @@ export default function LivePlay({ tournamentId, pop, push, showToast, showDialo
           <button disabled={locked || (!isPick && strokes >= 15)} onClick={() => edit(isPick ? hole.par : strokes + 1)} aria-label="One more stroke"
             className="w-12 h-12 rounded-full bg-canvas text-ink text-[24px] font-bold disabled:opacity-40">+</button>
         </div>
+        {/* Proposal for AJ: when to pick up (net double bogey) */}
+        {pickups && !locked && <PickupHint par={hole.par} received={received} strokes={isPick ? null : strokes} />}
         {pickups && !locked && (
           <button onClick={() => edit(isPick ? hole.par : 'P')} aria-pressed={isPick}
             className={`block mx-auto mt-2 h-8 px-4 rounded-full text-[12px] font-bold font-display ${isPick ? 'bg-ink text-white' : 'bg-canvas text-ink'}`}>
@@ -507,4 +509,21 @@ function loadQueue(tournamentId: string): Record<number, number | 'P'> {
 }
 function saveQueue(tournamentId: string, q: Record<number, number | 'P'>) {
   try { localStorage.setItem(queueKey(tournamentId), JSON.stringify(q)) } catch { /* private mode */ }
+}
+
+/* ───────── Pick-up guidance (proposal for AJ, 25 Nov 2026) ───────── */
+
+/** "Pick up after 7 · net double bogey", and "Please pick up your ball" once the golfer reaches it */
+function PickupHint({ par, received, strokes }: { par: number; received: number; strokes: number | null }) {
+  const limit = pickupAfter(par, received)
+  const reached = strokes !== null && strokes >= limit
+  return reached ? (
+    <p role="status" className="mt-2 rounded-2xl bg-amber-50 text-amber-900 px-3 py-2 text-center text-[12px] leading-snug">
+      <span className="font-bold">Please pick up your ball.</span> You’ve reached {pickupName(received)} ({limit}) — no more points on this hole.
+    </p>
+  ) : (
+    <p className="mt-1.5 text-center text-[11px] font-semibold text-gray-500">
+      Par {par}{received ? ` + ${received} stroke${received > 1 ? 's' : ''}` : ''} · pick up after {limit} ({pickupName(received)})
+    </p>
+  )
 }
